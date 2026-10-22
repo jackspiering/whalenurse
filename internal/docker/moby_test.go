@@ -2,9 +2,11 @@ package docker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -116,5 +118,34 @@ func TestMobyEventsEndsWhenTheContextIsCancelled(t *testing.T) {
 	}
 	if err := <-s.Err; err == nil {
 		t.Fatal("no reason")
+	}
+}
+
+// Only the actions whalenurse handles are asked for: the healthcheck exec_* events of every container would otherwise fill
+// the subscription while an action runs, and dockerd drops what a slow subscriber does not take, a kill too.
+func TestMobyEventsFiltersOnTheHandledActions(t *testing.T) {
+	filters := make(chan string, 1)
+	m := fakeEngine(t, func(w http.ResponseWriter, r *http.Request) {
+		filters <- r.URL.Query().Get("filters")
+		writeEvent(w, "health_status: unhealthy")
+		<-r.Context().Done()
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := m.Events(ctx, time.Time{})
+	ev := <-s.Events
+	if ev.Action != "health_status" || ev.Detail != "unhealthy" {
+		t.Fatalf("event: %+v", ev)
+	}
+	var got map[string]map[string]bool
+	if err := json.Unmarshal([]byte(<-filters), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]map[string]bool{"type": {"container": true}, "event": {}}
+	for _, a := range []string{"create", "start", "die", "kill", "oom", "destroy", "health_status"} {
+		want["event"][a] = true
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("filters = %v, want %v", got, want)
 	}
 }

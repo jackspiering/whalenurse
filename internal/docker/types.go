@@ -6,6 +6,7 @@ package docker
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 )
@@ -84,6 +85,14 @@ type Event struct {
 	Signal   string
 	Time     time.Time
 }
+
+// WatchedActions are the container event actions whalenurse acts on, and the only ones it subscribes to: the
+// subscription's `event` filter and the daemon's HandleEvent both read this list. dockerd prefix-matches the filter once
+// health_status is in it, so "health_status: unhealthy" passes, and no other entry is a prefix of an exec_* action.
+var WatchedActions = []string{"create", "start", "die", "kill", "oom", "destroy", "health_status"}
+
+// Watched reports whether action (without the ": <detail>" of a health_status) is one of WatchedActions.
+func Watched(action string) bool { return slices.Contains(WatchedActions, action) }
 
 // Stream is a live subscription. Events is closed when the stream ends and
 // Err then carries the reason.

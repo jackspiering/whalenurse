@@ -20,6 +20,10 @@ workflow refuses an undated section.
   meantime was not seen, and a failed first read of the Engine version disabled rungs 2 and 3 until whalenurse was restarted.
   The gate is now read again before the startup sweep and the sweep after a reconnect, and at every poll until a first read
   succeeds. A pre-release of a minimum version (`28.1.0-rc.1`, `5.2.0-rc.1`) now counts as below it.
+- **Healthcheck exec events could crowd out a `kill`.** whalenurse subscribed to every container event, and the
+  healthcheck `exec_*` events of busy hosts filled the subscription during a long pull or recreate, after which Docker drops
+  events for a subscriber that does not keep up, a manual stop's `kill` too. The subscription now asks only for the events
+  whalenurse uses.
 
 ## [0.1.2] - 2026-10-22
 

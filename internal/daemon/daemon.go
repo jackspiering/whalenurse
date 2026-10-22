@@ -503,10 +503,8 @@ func (d *Daemon) schedule(key string, due time.Time) {
 // HandleEvent reacts to one Docker event. Events are only triggers: the
 // decision is made later, by inspecting the container after GRACE.
 func (d *Daemon) HandleEvent(ctx context.Context, ev docker.Event) {
-	switch ev.Action {
-	case "create", "start", "die", "kill", "oom", "destroy", "health_status":
-	default:
-		return // exec_*, stop, restart, rename, attach, ...
+	if !docker.Watched(ev.Action) {
+		return // exec_*, stop, restart, rename, attach, ...: not subscribed to, and dropped if they come anyway
 	}
 	if d.o.SelfID != "" && ev.ID == d.o.SelfID {
 		return

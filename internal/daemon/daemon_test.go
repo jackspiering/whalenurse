@@ -12,6 +12,7 @@ import (
 	"github.com/jackspiering/whalenurse/internal/config"
 	"github.com/jackspiering/whalenurse/internal/docker"
 	"github.com/jackspiering/whalenurse/internal/engine"
+	"github.com/jackspiering/whalenurse/internal/rules"
 )
 
 const host = "h"
@@ -752,6 +753,33 @@ func TestDuplicateKeyPrefersNewest(t *testing.T) {
 }
 
 // ---- event stream ---------------------------------------------------------------------------------
+
+// HandleEvent takes the actions the subscription asks for (docker.WatchedActions) and nothing else, so the two cannot
+// drift apart. An open action window is the probe: every event that reaches the engine is attributed to it.
+func TestHandleEventActionsMatchTheSubscription(t *testing.T) {
+	h := newHarness(t, nil, nil)
+	c := h.running(hexID("01"), "p", "web")
+	h.tick()
+	h.d.eng.Begin(engine.Target{Key: docker.StateKey(host, c.Name, c.Labels), ID: c.ID, Name: c.Name}, engine.Plan{}, rules.Decision{})
+	reached := func(action string) bool {
+		before := h.rec.Count(engine.EventAttributed)
+		h.event(c, action, "unhealthy")
+		return h.rec.Count(engine.EventAttributed) > before
+	}
+	for _, a := range docker.WatchedActions {
+		if !reached(a) {
+			t.Errorf("%s is subscribed to but HandleEvent drops it", a)
+		}
+	}
+	for _, a := range []string{"exec_create", "exec_start", "exec_die", "stop", "restart", "rename", "attach", "pause"} {
+		if docker.Watched(a) {
+			t.Errorf("%s is subscribed to", a)
+		}
+		if reached(a) {
+			t.Errorf("HandleEvent took %s, which is not subscribed to", a)
+		}
+	}
+}
 
 func TestEventStreamReconnectsWithSince(t *testing.T) {
 	h := newHarness(t, nil, nil)

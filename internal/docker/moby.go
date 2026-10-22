@@ -112,7 +112,9 @@ func (m *Moby) Start(ctx context.Context, id string) error {
 }
 
 func (m *Moby) Events(ctx context.Context, since time.Time) Stream {
-	opts := client.EventsListOptions{Filters: client.Filters{}.Add("type", string(events.ContainerEventType))}
+	opts := client.EventsListOptions{Filters: client.Filters{}.
+		Add("type", string(events.ContainerEventType)).
+		Add("event", WatchedActions...)}
 	if !since.IsZero() {
 		opts.Since = fmt.Sprintf("%d.%09d", since.Unix(), since.Nanosecond())
 	}
