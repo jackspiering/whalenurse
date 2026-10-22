@@ -388,3 +388,39 @@ func TestCommandDispatch(t *testing.T) {
 		}
 	}
 }
+
+func TestHostIDWarning(t *testing.T) {
+	self := strings.Repeat("ab", 32)
+	if hostIDWarning(self[:12], self) == "" {
+		t.Error("no warning for a host ID that is the own container's ID")
+	}
+	for _, tc := range [][2]string{{"nas", self}, {"nas", ""}, {self[:12], ""}} {
+		if w := hostIDWarning(tc[0], tc[1]); w != "" {
+			t.Errorf("hostIDWarning(%q, %q) = %q", tc[0], tc[1], w)
+		}
+	}
+}
+
+// The binary re-keys the store to its host ID before it loads it (plan v3.13 item 12).
+func TestOpenStoreRekeysToTheHostID(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	cfg := config.Defaults()
+	cfg.DataDir = t.TempDir()
+	cfg.HostID = "0123456789ab"
+	st, _, err := openStore(cfg, log, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.SaveKey(engine.KeyRecord{Key: "0123456789ab/p/web/1", Name: "p-web-1", MarkerAt: time.Now()})
+	st.Close()
+
+	cfg.HostID = "ba9876543210" // whalenurse recreated
+	st, snap, err := openStore(cfg, log, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if len(snap.Keys) != 1 || snap.Keys[0].Key != "ba9876543210/p/web/1" || snap.Keys[0].MarkerAt.IsZero() {
+		t.Fatalf("loaded %+v", snap.Keys)
+	}
+}

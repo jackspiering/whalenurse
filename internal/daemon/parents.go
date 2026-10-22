@@ -12,6 +12,14 @@ import (
 // metaParents is the prefix of the store keys that remember which services a dependent hangs on.
 const metaParents = "parents:"
 
+// MetaKeyed and MetaWithKey are the meta rows that hold a state key, which the store re-keys to the current host ID at
+// startup (store.Rekey, plan v3.13 item 12): a prefix followed by the key, and a prefix whose JSON value has a "key".
+// A new meta record keyed by a state key must be added here.
+var (
+	MetaKeyed   = []string{metaParents}
+	MetaWithKey = []string{metaTagMoved}
+)
+
 // parentsGoneAfter is how long a key may be absent from the container list before what is remembered about it is dropped
 // (a compose recreate by hand removes the container for a moment, and the parent mapping must survive that).
 const parentsGoneAfter = time.Hour

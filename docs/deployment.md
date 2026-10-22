@@ -46,7 +46,10 @@ services:
   `chown 65532:65532`. Without it a restart of whalenurse forgets everything that it has not yet recovered from. One
   whalenurse per data directory: `run` holds a lock on `whalenurse.lock` there, and a second `run` on the same directory
   refuses to start.
-- **Set `WHALENURSE_HOST_ID`** if you want a stable host name in keys and notifications: the container's hostname is its ID.
+- **Set `WHALENURSE_HOST_ID`** (the examples do) for a stable host name in keys, notifications and the API: without it the
+  host ID is the container's hostname, its ID, which changes whenever whalenurse is recreated (an upgrade), and whalenurse
+  warns at startup. The state itself survives such a change: at startup the store's records are moved to the current host
+  ID (the event history keeps the host it was written with).
 
 ### The two read-only mounts that make recreate work
 

@@ -36,6 +36,7 @@ services:
       # a directory with a config.json holding nothing but "auths" with a pull-only token, mode 0440, owner 65532.
       # - ./registry-auth:/registry-auth:ro
     environment:
+      WHALENURSE_HOST_ID: ${WHALENURSE_HOST_ID:-my-docker-host} # this host's name in keys and notifications; set it in .env
       # WHALENURSE_REGISTRY_AUTH_DIR: /registry-auth
       WHALENURSE_DRY_RUN: ${WHALENURSE_DRY_RUN:-true} # decisions are logged and notified, nothing is changed; set false in .env when they look right
       WHALENURSE_HTTP_ADDR: ":8484"

@@ -15,6 +15,11 @@ Container: `docker compose pull whalenurse && docker compose up -d whalenurse` (
 recreate rung. If it is healing something when it is stopped, it lets that action finish first (up to 30 s; an action cut
 short is not counted and runs again after the restart), so give it the `stop_grace_period: 60s` of the examples, or the
 unit's `KillMode=mixed` and `TimeoutStopSec=60s`; with Docker's default of 10 s a recreate in flight can be killed halfway.
+
+**The host ID.** A container install without `WHALENURSE_HOST_ID` names the host by its container ID, which the upgrade
+changes; versions after 0.1.2 move the stored state to the new ID at startup (an upgrade from 0.1.2 too), so nothing is lost. Set
+`WHALENURSE_HOST_ID` (as the examples now do) for a name that stays the same in keys and notifications.
+
 After replacing the systemd unit, run `systemctl daemon-reload`, and `systemctl reenable whalenurse` when its `[Install]`
 section changed (it did after 0.1.2: `WantedBy=` gained `docker.service`, so whalenurse starts again with Docker).
 

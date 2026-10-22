@@ -20,6 +20,11 @@ workflow refuses an undated section.
 - Under systemd, whalenurse no longer takes a container with `ipc: shareable` for its own container (it saw that
   container's `/dev/shm` mount in the host's mount table) and so no longer skips healing it. Its own container ID is read
   only from the `/etc/hostname`, `/etc/hosts` and `/etc/resolv.conf` binds.
+- **A recreate of the whalenurse container no longer loses its state.** In a container the default host ID is the
+  container's ID, so every upgrade gave every key a new host segment: SUSPENDED containers were healed again from the
+  start, hand-stopped ones could be started, and flap history was reset. At startup the stored state is now moved to the
+  current `WHALENURSE_HOST_ID` (on a collision, the more recent record wins). whalenurse warns when the host ID is its
+  own container ID, and the examples set `WHALENURSE_HOST_ID`.
 
 ### Changed
 

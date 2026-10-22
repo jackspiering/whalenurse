@@ -188,6 +188,9 @@ func runCmd(args []string) error {
 		}
 		log.Info("running in a container", "self", docker.ShortID(selfID))
 	}
+	if w := hostIDWarning(cfg.HostID, selfID); w != "" {
+		log.Warn("config", "detail", w)
+	}
 
 	bus := &engine.Bus{}
 	bus.Subscribe(daemon.LogSink(log))
@@ -206,19 +209,11 @@ func runCmd(args []string) error {
 		bus.Subscribe(ring.Record)
 		evlog = ring
 	} else {
-		st, err := store.Open(cfg.DataDir, log)
+		st, snap, err := openStore(cfg, log, time.Now())
 		if err != nil {
-			if errors.Is(err, store.ErrLocked) {
-				return err
-			}
-			return fmt.Errorf("cannot open the state store in %s (is WHALENURSE_DATA_DIR a writable volume?): %w", cfg.DataDir, err)
+			return err
 		}
 		defer st.Close()
-		snap, err := st.Load(time.Now())
-		if err != nil {
-			return fmt.Errorf("cannot read the state store: %w", err)
-		}
-		log.Info("state store opened", "dir", cfg.DataDir, "keys", len(snap.Keys), "pauses", len(snap.Pauses))
 		opts.Persist, opts.Snapshot, opts.Meta = st, snap, st
 		ledger, evlog, history = st, st, st
 		// Event IDs are monotonic per host across restarts: the bus continues after the highest ID ever stored,
@@ -305,6 +300,42 @@ func runCmd(args []string) error {
 	}
 	log.Info("stopped")
 	return nil
+}
+
+// hostIDWarning is the startup warning for a host ID that is the own container's ID: the default (the hostname) in a
+// container without WHALENURSE_HOST_ID or hostname:, which changes whenever whalenurse is recreated.
+func hostIDWarning(hostID, selfID string) string {
+	if selfID == "" || hostID != docker.ShortID(selfID) {
+		return ""
+	}
+	return "the host ID is this container's ID (its hostname, the default without WHALENURSE_HOST_ID), which changes whenever whalenurse is recreated: the state is carried over at startup, but keys, notifications and the API name another host after every upgrade. Set WHALENURSE_HOST_ID"
+}
+
+// openStore opens the state store, re-keys what it holds to the current host ID (plan v3.13 item 12: in a container the
+// default host ID is the container's ID, which an upgrade changes) and loads it.
+func openStore(cfg config.Global, log *slog.Logger, now time.Time) (*store.Store, engine.Snapshot, error) {
+	st, err := store.Open(cfg.DataDir, log)
+	if err != nil {
+		if errors.Is(err, store.ErrLocked) {
+			return nil, engine.Snapshot{}, err
+		}
+		return nil, engine.Snapshot{}, fmt.Errorf("cannot open the state store in %s (is WHALENURSE_DATA_DIR a writable volume?): %w", cfg.DataDir, err)
+	}
+	n, err := st.Rekey(cfg.HostID, store.RekeyMeta{Keyed: daemon.MetaKeyed, WithKey: daemon.MetaWithKey})
+	if err != nil {
+		st.Close()
+		return nil, engine.Snapshot{}, fmt.Errorf("cannot re-key the state store to the host ID %s: %w", cfg.HostID, err)
+	}
+	if n > 0 {
+		log.Info("state store: moved the state of containers recorded under another host ID to this one", "keys", n, "host", cfg.HostID)
+	}
+	snap, err := st.Load(now)
+	if err != nil {
+		st.Close()
+		return nil, engine.Snapshot{}, fmt.Errorf("cannot read the state store: %w", err)
+	}
+	log.Info("state store opened", "dir", cfg.DataDir, "keys", len(snap.Keys), "pauses", len(snap.Pauses))
+	return st, snap, nil
 }
 
 // setupNotify makes the notifier one more subscriber of the event stream. The URLs hold tokens, so everything about them

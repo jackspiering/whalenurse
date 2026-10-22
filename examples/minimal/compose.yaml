@@ -23,6 +23,9 @@ services:
     group_add: ["${DOCKER_GID:?run: echo DOCKER_GID=$(stat -c %g /var/run/docker.sock) > .env}"]
     tmpfs:
       - /run:uid=65532,gid=65532,mode=0700 # the control socket (the image's healthcheck and the CLI) lives here
+    environment:
+      # This Docker host's name in container keys and notifications (the default, the hostname, is this container's ID).
+      WHALENURSE_HOST_ID: ${WHALENURSE_HOST_ID:-my-docker-host}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - whalenurse-data:/data # the state store; the image makes /data writable for the nonroot user
