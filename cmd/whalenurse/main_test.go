@@ -2,10 +2,13 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +21,7 @@ import (
 
 	"github.com/jackspiering/whalenurse/internal/api"
 	"github.com/jackspiering/whalenurse/internal/clock"
+	"github.com/jackspiering/whalenurse/internal/compose"
 	"github.com/jackspiering/whalenurse/internal/config"
 	"github.com/jackspiering/whalenurse/internal/daemon"
 	"github.com/jackspiering/whalenurse/internal/docker"
@@ -291,5 +295,59 @@ func TestTrustedProxiesAreIgnoredWithoutAToken(t *testing.T) {
 	cfg.HTTPToken = "a-long-random-token-0123456789"
 	if got := httpWarnings(cfg); len(got) != 0 {
 		t.Fatalf("with a token the list is used: %v", got)
+	}
+}
+
+// versionRunner answers `version --short` like a compose binary; nothing else may be run while the actors are picked.
+type versionRunner struct{ t *testing.T }
+
+func (r versionRunner) Run(_ context.Context, c compose.Command) (compose.Result, error) {
+	if len(c.Args) == 2 && c.Args[0] == "version" && c.Args[1] == "--short" {
+		return compose.Result{Stdout: []byte("5.6.0\n")}, nil
+	}
+	r.t.Errorf("unexpected compose command while wiring: %v", c.Args)
+	return compose.Result{}, errors.New("unexpected")
+}
+
+type regularFile struct{ os.FileInfo }
+
+func (regularFile) IsDir() bool { return false }
+
+// Dry-run is structural: the daemon calls whatever actors the binary wires, so the binary's own wiring must give a dry run
+// the no-op actors, for rung 1 and for the compose rungs, and a live run the real ones.
+func TestDryRunWiresOnlyNoOpActors(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	lookup := compose.Lookup{
+		Env: "/fake/docker-compose", Runner: versionRunner{t},
+		Stat: func(string) (os.FileInfo, error) { return regularFile{}, nil },
+	}
+	cli := &docker.Fake{}
+	for _, dry := range []bool{true, false} {
+		cfg := config.Defaults()
+		cfg.DryRun = dry
+		cfg.ControlSocket = filepath.Join(t.TempDir(), "whalenurse.sock")
+
+		rd, act, note, remove := composeFor(context.Background(), cfg, lookup, log)
+		remove()
+		if rd == nil || note != "" {
+			t.Fatalf("dry=%v: no compose reader (note %q)", dry, note)
+		}
+		_, noop := act.(compose.DryRun)
+		real, isReal := act.(*compose.Compose)
+		if dry && !noop {
+			t.Errorf("dry run: the compose actor is %T, want compose.DryRun", act)
+		}
+		if !dry && (!isReal || real != rd) {
+			t.Errorf("live run: the compose actor is %T, want the *compose.Compose that is also the reader", act)
+		}
+
+		da := dockerActor(cfg, cli, log)
+		_, noop = da.(docker.DryRun)
+		if dry && !noop {
+			t.Errorf("dry run: the Docker actor is %T, want docker.DryRun", da)
+		}
+		if !dry && da != docker.Actor(cli) {
+			t.Errorf("live run: the Docker actor is %T, want the client", da)
+		}
 	}
 }

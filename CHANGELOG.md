@@ -10,6 +10,11 @@ workflow refuses an undated section.
 
 ## [Unreleased]
 
+### Changed
+
+- A unit test now checks that the binary gives a dry run only the actors that change nothing, for the restart rung and
+  for the compose rungs; before, only the restart one was checked, by an integration test.
+
 ## [0.1.2] - 2026-10-22
 
 A security fix (a compose label could put a flag on the compose command line), fixes from a code review, private

@@ -194,15 +194,13 @@ func runCmd(args []string) error {
 	nt, red := setupNotify(cfg, log, bus, ledger, regAuth.secrets())
 	defer nt.Shutdown(5 * time.Second) // the last message before a stop is often the one that matters
 
-	var actor docker.Actor = cli
+	opts.Actor = dockerActor(cfg, cli, log)
 	if cfg.DryRun {
-		actor = docker.DryRun{Would: func(verb, id string) { log.Info("dry-run: would act", "verb", verb, "id", docker.ShortID(id)) }}
 		log.Warn("DRY RUN: decisions are logged, no container is changed")
 	}
-	opts.Actor = actor
 	var removeConfigDir func()
 	opts.PullAuthHosts = regAuth.hosts()
-	opts.Compose, opts.ComposeActor, opts.ComposeNote, removeConfigDir = composeFor(ctx, cfg, log)
+	opts.Compose, opts.ComposeActor, opts.ComposeNote, removeConfigDir = composeFor(ctx, cfg, compose.Lookup{Env: cfg.ComposeBin}, log)
 	defer removeConfigDir()
 	var pinger *notify.Pinger
 	opts.NotifyStatus = func() notify.Status {
@@ -300,11 +298,11 @@ func setupNotify(cfg config.Global, log *slog.Logger, bus *engine.Bus, ledger no
 // and the note says why. In dry-run mode the Actor is a no-op; the Reader still runs the drift guard, which only reads.
 // The commands get an empty directory of their own as DOCKER_CONFIG, next to the control socket (writable in both
 // deployments: /run is a tmpfs in the examples, the runtime directory under systemd) or else in the temp directory; the
-// returned func removes it.
-func composeFor(ctx context.Context, cfg config.Global, log *slog.Logger) (compose.Reader, compose.Actor, string, func()) {
+// returned func removes it. The lookup is a parameter so a test can run this with a fake binary.
+func composeFor(ctx context.Context, cfg config.Global, l compose.Lookup, log *slog.Logger) (compose.Reader, compose.Actor, string, func()) {
 	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	bin, notes, err := compose.Resolve(rctx, compose.Lookup{Env: cfg.ComposeBin})
+	bin, notes, err := compose.Resolve(rctx, l)
 	if err != nil {
 		log.Warn("no usable docker compose binary", "error", err.Error())
 		return nil, nil, err.Error(), func() {}
@@ -320,12 +318,28 @@ func composeFor(ctx context.Context, cfg config.Global, log *slog.Logger) (compo
 			"error", err.Error(), "docker_config", compose.NoDockerConfig)
 	}
 	c := compose.New(*bin, compose.ExecRunner{ConfigDir: dir}).WithRegistryAuth(cfg.RegistryAuthDir)
+	return c, composeActor(cfg, c, log), "", remove
+}
+
+// Dry-run is structural (m1-notes decision 8): the daemon calls its actors without asking whether this is a dry run, so
+// these two functions are what keeps a dry run from changing anything. A test checks both.
+
+// dockerActor is the Docker API actor of rung 1: the client itself, or in a dry run a no-op that logs.
+func dockerActor(cfg config.Global, cli docker.Actor, log *slog.Logger) docker.Actor {
 	if cfg.DryRun {
-		return c, compose.DryRun{Would: func(verb string, p compose.Project) {
-			log.Info("dry-run: would run compose", "verb", verb, "project", p.Name, "service", p.Service)
-		}}, "", remove
+		return docker.DryRun{Would: func(verb, id string) { log.Info("dry-run: would act", "verb", verb, "id", docker.ShortID(id)) }}
 	}
-	return c, c, "", remove
+	return cli
+}
+
+// composeActor is the compose actor of rungs 2 and 3: c itself, or in a dry run a no-op that logs.
+func composeActor(cfg config.Global, c *compose.Compose, log *slog.Logger) compose.Actor {
+	if cfg.DryRun {
+		return compose.DryRun{Would: func(verb string, p compose.Project) {
+			log.Info("dry-run: would run compose", "verb", verb, "project", p.Name, "service", p.Service)
+		}}
+	}
+	return c
 }
 
 func healthCmd(args []string) error {
