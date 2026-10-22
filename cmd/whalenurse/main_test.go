@@ -351,3 +351,40 @@ func TestDryRunWiresOnlyNoOpActors(t *testing.T) {
 		}
 	}
 }
+
+// `run` takes --dry-run and nothing else. A positional argument stops Go's flag parsing, so `run dry-run` or
+// `run -- --dry-run` would otherwise start a live healer during the evaluation the docs say to run as a dry run.
+func TestRunRefusesPositionalArguments(t *testing.T) {
+	for _, args := range [][]string{{"dry-run"}, {"--", "--dry-run"}, {"x", "--dry-run"}, {"--dry-run", "extra"}} {
+		if dry, err := parseRunFlags(args); err == nil {
+			t.Errorf("run %q: accepted (dry=%v), want an error", args, dry)
+		}
+	}
+	for _, tc := range []struct {
+		args []string
+		dry  bool
+	}{{nil, false}, {[]string{"--dry-run"}, true}, {[]string{"-dry-run"}, true}, {[]string{"--dry-run=false"}, false}} {
+		dry, err := parseRunFlags(tc.args)
+		if err != nil || dry != tc.dry {
+			t.Errorf("run %q: dry=%v err=%v, want dry=%v", tc.args, dry, err, tc.dry)
+		}
+	}
+}
+
+// -h and --help print the usage and exit 0; they used to reach `run`'s flag set and exit 1.
+func TestCommandDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		cmd  string
+		rest int
+	}{
+		{nil, "run", 0}, {[]string{"--dry-run"}, "run", 1}, {[]string{"run", "--dry-run"}, "run", 1},
+		{[]string{"-h"}, "help", 0}, {[]string{"--help"}, "help", 0}, {[]string{"-help"}, "help", 0},
+		{[]string{"status", "--json"}, "status", 1}, {[]string{""}, "run", 1},
+	} {
+		cmd, rest := command(tc.args)
+		if cmd != tc.cmd || len(rest) != tc.rest {
+			t.Errorf("command(%q) = %q %q, want %q with %d arguments", tc.args, cmd, rest, tc.cmd, tc.rest)
+		}
+	}
+}

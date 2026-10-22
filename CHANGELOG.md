@@ -10,6 +10,11 @@ workflow refuses an undated section.
 
 ## [Unreleased]
 
+### Fixed
+
+- `whalenurse run` refuses any argument other than `--dry-run`: `run dry-run` or `run -- --dry-run` started a live
+  healer. `whalenurse -h` and `--help` print the usage and exit 0 instead of exiting 1.
+
 ### Changed
 
 - A unit test now checks that the binary gives a dry run only the actors that change nothing, for the restart rung and

@@ -41,11 +41,7 @@ import (
 var version = ""
 
 func main() {
-	args := os.Args[1:]
-	cmd := "run"
-	if len(args) > 0 && len(args[0]) > 0 && args[0][0] != '-' {
-		cmd, args = args[0], args[1:]
-	}
+	cmd, args := command(os.Args[1:])
 	var err error
 	switch cmd {
 	case "run":
@@ -60,17 +56,35 @@ func main() {
 		err = notifyCmd(args)
 	case "version":
 		fmt.Println("whalenurse", buildVersion())
-	case "help", "-h", "--help":
+	case "help":
 		usage()
 	default:
 		fmt.Fprintf(os.Stderr, "whalenurse: unknown command %q\n\n", cmd)
 		usage()
 		os.Exit(2)
 	}
+	if errors.Is(err, flag.ErrHelp) {
+		return // the flag set has printed its own usage
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "whalenurse:", err)
 		os.Exit(1)
 	}
+}
+
+// command splits the arguments into the command and its own arguments. The command is the first argument unless that
+// is a flag (`whalenurse --dry-run` is `run --dry-run`); -h, -help and --help there ask for the usage.
+func command(args []string) (string, []string) {
+	if len(args) == 0 {
+		return "run", nil
+	}
+	switch a := args[0]; {
+	case a == "-h" || a == "-help" || a == "--help":
+		return "help", args[1:]
+	case a != "" && a[0] != '-':
+		return a, args[1:]
+	}
+	return "run", args
 }
 
 func usage() {
@@ -106,17 +120,31 @@ func buildVersion() string {
 	return "dev"
 }
 
-func runCmd(args []string) error {
+// parseRunFlags reads the flags of `run`.
+func parseRunFlags(args []string) (dry bool, err error) {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	dry := fs.Bool("dry-run", false, "log decisions only; change nothing (same as WHALENURSE_DRY_RUN=true)")
+	d := fs.Bool("dry-run", false, "log decisions only; change nothing (same as WHALENURSE_DRY_RUN=true)")
 	if err := fs.Parse(args); err != nil {
+		return false, err
+	}
+	// Parsing stops at the first argument that is not a flag, so `run dry-run` or `run -- --dry-run` would leave the
+	// flag unset and start a live healer.
+	if fs.NArg() > 0 {
+		return false, fmt.Errorf("run: unexpected argument %q (did you mean --dry-run?)", fs.Arg(0))
+	}
+	return *d, nil
+}
+
+func runCmd(args []string) error {
+	dry, err := parseRunFlags(args)
+	if err != nil {
 		return err
 	}
 	cfg, warns, err := config.FromEnv(os.Environ())
 	if err != nil {
 		return err
 	}
-	if *dry {
+	if dry {
 		cfg.DryRun = true
 	}
 	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
