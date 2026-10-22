@@ -10,6 +10,12 @@ workflow refuses an undated section.
 
 ## [Unreleased]
 
+### Changed
+
+- **The rollback `up` line has `--no-build`**, like every other `up` whalenurse runs. If the tag line failed or was skipped,
+  the `up` now stops with an error instead of building an image that is not the old one. Rollbacks already shown keep
+  their form.
+
 ### Fixed
 
 - **The "upgraded during heal" message keeps its rollback commands exact.** After the rate limit had held messages back,
@@ -23,11 +29,11 @@ workflow refuses an undated section.
   the receiver's host), and the page offered the masked command with a Copy button. Such a rollback is now withheld, and the
   page says so.
 
-### Changed
+### Documentation
 
-- **The rollback `up` line has `--no-build`**, like every other `up` whalenurse runs. If the tag line failed or was skipped,
-  the `up` now stops with an error instead of building an image that is not the old one. Rollbacks already shown keep
-  their form.
+- **A rollback does not last while `whalenurse.heal.pull` stays on.** The next heal reaches the pull again and the registry's
+  newer image comes back. The "upgraded during heal" message, the dashboard and the docs now say so and how to keep the old
+  image: pin it in the compose file or remove the label before running the `up` line.
 
 ## [0.1.2] - 2026-10-22
 

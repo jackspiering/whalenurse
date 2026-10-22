@@ -107,4 +107,5 @@ away. See [troubleshooting.md](troubleshooting.md#drift-block-messages).
 
 Run the previous image tag or binary again. If it refuses the database (it was migrated), [restore the backup](#backing-up-and-restoring-the-store).
 The pull rung's own "upgraded during heal" notification gives the exact commands to roll *a container* back; that is a different
-thing from rolling back whalenurse.
+thing from rolling back whalenurse. While `whalenurse.heal.pull` stays on, such a container rollback lasts only until the next
+heal pulls again: pin the old image in the compose file or remove the label first.

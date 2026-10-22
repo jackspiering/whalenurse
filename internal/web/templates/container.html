@@ -74,6 +74,7 @@
 {{if .Sidecars}}<p>Sidecars recreated with it: {{range .Sidecars}}<code>{{.}}</code> {{end}}</p>{{end}}
 {{if .RollbackTag}}
 <p>To roll back, run these two commands on the host, one after the other:</p>
+<p class="muted">The rollback does not last while <code>whalenurse.heal.pull</code> stays on: the next heal pulls the newer image again. To keep the old image, pin it in the compose file (a version tag or an <code>@sha256:</code> digest) or remove the label before you run the second command; it reads the same compose files.</p>
 <div class="cmd"><pre class="rollback"><code>{{.RollbackTag}}</code></pre><button type="button" class="copy" data-copy aria-label="Copy the first command">Copy</button></div>
 <div class="cmd"><pre class="rollback"><code>{{.RollbackUp}}</code></pre><button type="button" class="copy" data-copy aria-label="Copy the second command">Copy</button></div>
 {{else if .OldImage}}

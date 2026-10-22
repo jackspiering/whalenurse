@@ -242,6 +242,10 @@ func compose(c rctx, e engine.Event, subject, headline string, detail, pinned []
 	// The pinned lines go last and whole; the other lines are cut to the room that is left.
 	tail := "\n" + strings.Join(pinned, "\n")
 	room := MaxBodyPinned - utf8.RuneCountInString(tail)
+	// The line that says the rollback does not last is the first to give way, before any other is cut.
+	if n := len(lines); lines[n-1] == rollbackDoesNotLast && utf8.RuneCountInString(strings.Join(lines, "\n")) > room {
+		lines = lines[:n-1]
+	}
 	return Message{Title: cut(title, MaxTitle), Body: fit(lines, room) + tail, Critical: critical, pinned: tail}
 }
 
@@ -282,12 +286,18 @@ func tagMovedMessage(e engine.Event, headline *string, detail *[]string) (pinned
 		*detail = append(*detail, "every stack that shares this tag now sees it as moved")
 	}
 	if a["rollback_tag"] != "" && a["rollback_up"] != "" {
+		// The last detail line, so it is the first that gives way when the body is full (plan v3.13 item 8).
+		*detail = append(*detail, rollbackDoesNotLast)
 		// Byte for byte: whitespace inside a quoted path is part of the path, so these are never passed through oneLine.
 		return []string{"roll back:", a["rollback_tag"], a["rollback_up"]}
 	}
 	*detail = append(*detail, "no rollback: the previous image was not present locally")
 	return nil
 }
+
+// rollbackDoesNotLast stands before the rollback commands: with whalenurse.heal.pull still on, the next heal reaches the pull
+// rung again and the registry's newer image comes back.
+const rollbackDoesNotLast = "the rollback does not last while whalenurse.heal.pull stays on: to keep the old image, pin it in the compose file or remove the label"
 
 // movedAt prints the time of a move for a phone: minutes, UTC.
 func movedAt(rfc string) string {

@@ -270,3 +270,36 @@ func TestUpgradedThatFailedSaysTheRecreateFailedNotThePull(t *testing.T) {
 		t.Errorf("%v", m)
 	}
 }
+
+// The rollback does not last while whalenurse.heal.pull stays on: the next heal reaches the pull again (plan v3.13 item 8).
+// The message says so on one detail line right before the pinned commands, and that line is the first to be cut.
+func TestUpgradeMessageSaysTheRollbackDoesNotLast(t *testing.T) {
+	for _, typ := range []engine.EventType{engine.TagMoved, engine.Upgraded} {
+		m := renderOne(t, ev(typ, webKey, "x", movedAttrs(stackProject(), "web:1", true)), rctx{})
+		if !strings.Contains(m.Body, "\n"+rollbackDoesNotLast+"\nroll back:\n") {
+			t.Errorf("%s: the line must stand right before the commands:\n%s", typ, m.Body)
+		}
+		if strings.Contains(m.pinned, rollbackDoesNotLast) {
+			t.Errorf("%s: the line is cuttable, never pinned", typ)
+		}
+	}
+	// Without a rollback there is nothing to keep.
+	m := renderOne(t, ev(engine.TagMoved, webKey, "x", map[string]string{"ref": "web:1", "new": newID, "ok": "true"}), rctx{})
+	if strings.Contains(m.Body, rollbackDoesNotLast) {
+		t.Errorf("%s", m.Body)
+	}
+	// It is the first line to give way: with room for every other line but not for it, it goes and the rest stay whole.
+	e := ev(engine.TagMoved, webKey, "x", nil)
+	detail := []string{"image: a", "error: b", rollbackDoesNotLast}
+	head := webKey + "\nimage: a\nerror: b"
+	pinned := []string{"roll back:", strings.Repeat("t", MaxBodyPinned-utf8.RuneCountInString(head)-len("\nroll back:\n\n")-40), "up"}
+	got := compose(rctx{}, e, "stack-web-1", "upgraded during heal", detail, pinned, true)
+	if got.Body != head+got.pinned || strings.Contains(got.Body, "…") {
+		t.Errorf("the cuttable line must go first, whole lines stay:\n%s", got.Body)
+	}
+	// In the worst case the commands stay whole and last.
+	w := renderOne(t, worstCaseUpgrade(t), rctx{dryRun: true})
+	if strings.Contains(w.Body, rollbackDoesNotLast) || !strings.HasSuffix(w.Body, w.pinned) || utf8.RuneCountInString(w.Body) > MaxBodyPinned {
+		t.Errorf("%d runes:\n%s", utf8.RuneCountInString(w.Body), w.Body)
+	}
+}
