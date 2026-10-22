@@ -336,16 +336,17 @@ func (d *Daemon) watchEvents(ctx context.Context, out chan<- docker.Event, sig c
 	for ctx.Err() == nil {
 		sctx, cancel := context.WithCancel(ctx)
 		s := d.rd.Events(sctx, since)
-		d.setEvents(true)
-		if backoff > d.o.ReconnectBackoff {
-			d.log.Info("docker events stream reconnected")
-		}
 		established := false
 		establish := func() bool {
 			if established {
 				return true
 			}
 			established = true
+			// Only now is the stream up: a subscription that fails at once must not reset the down time.
+			d.setEvents(true)
+			if backoff > d.o.ReconnectBackoff {
+				d.log.Info("docker events stream reconnected")
+			}
 			return send(streamSignal{})
 		}
 		stable := time.NewTimer(streamStable)

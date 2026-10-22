@@ -10,6 +10,13 @@ workflow refuses an undated section.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A dropped Docker events stream went unnoticed.** The Docker client reports the end of the stream only on its error
+  channel, so whalenurse kept waiting for events that never came: no resubscribe, no sweep after the reconnect, and `/healthz`
+  stayed ok. It now resubscribes, sweeps after the settle time, and `/healthz` reports a stream that stays down, also when
+  every resubscribe fails at once.
+
 ## [0.1.2] - 2026-10-22
 
 A security fix (a compose label could put a flag on the compose command line), fixes from a code review, private

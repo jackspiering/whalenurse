@@ -32,6 +32,7 @@ type Fake struct {
 	AfterInspect  func(f *Fake, ref string)      // runs after an Inspect call has read its result
 	ListErr       error
 	ServerErr     error // ServerVersion fails with this
+	EventsErr     error // every Events subscription ends at once with this, like a daemon that is down
 
 	server ServerInfo
 	images map[string]string // reference -> what ImageID returns for it
@@ -194,9 +195,15 @@ func (f *Fake) Subscriptions() []time.Time {
 func (f *Fake) Events(ctx context.Context, since time.Time) Stream {
 	f.mu.Lock()
 	f.since = append(f.since, since)
+	fail := f.EventsErr
 	f.mu.Unlock()
 	out := make(chan Event)
 	errs := make(chan error, 1)
+	if fail != nil {
+		errs <- fail
+		close(out)
+		return Stream{Events: out, Err: errs}
+	}
 	go func() {
 		defer close(out)
 		for {

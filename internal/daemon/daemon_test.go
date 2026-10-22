@@ -773,6 +773,29 @@ func TestEventStreamReconnectsWithSince(t *testing.T) {
 	}
 }
 
+// A daemon that refuses every subscription is down, however often whalenurse
+// retries: a failed retry must not count as the stream coming back.
+func TestHealthyReportsAStreamThatFailsOnEveryRetry(t *testing.T) {
+	h := newHarness(t, nil, nil)
+	h.d.o.ReconnectBackoff = 5 * time.Millisecond
+	h.fake.EventsErr = fmt.Errorf("connection refused")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go h.d.watchEvents(ctx, make(chan docker.Event, 8), make(chan streamSignal, 16))
+
+	waitFor(t, func() bool { return len(h.fake.Subscriptions()) >= 3 })
+	h.clk.Advance(3 * time.Minute)
+	h.d.lastTick.Store(h.clk.Now().UnixNano())
+	n := len(h.fake.Subscriptions())
+	waitFor(t, func() bool { return len(h.fake.Subscriptions()) > n+1 })
+	if ok, why := h.d.Healthy(); ok || !strings.Contains(why, "events stream down") {
+		t.Fatalf("Healthy() = %v, %q; want the stream reported down", ok, why)
+	}
+	if h.d.eventsUp.Load() {
+		t.Fatal("events_up after failed subscriptions")
+	}
+}
+
 func TestHealthyReflectsEventStream(t *testing.T) {
 	h := newHarness(t, nil, nil)
 	if ok, _ := h.d.Healthy(); !ok {
