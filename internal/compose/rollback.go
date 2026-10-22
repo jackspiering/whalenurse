@@ -3,7 +3,8 @@ package compose
 import "strings"
 
 // RollbackCommands are the two commands that undo a pull (plan §3.7): tag the old image back onto the reference, then
-// bring the service up from it without pulling. They are written for a person at the host's shell, so they use the
+// bring the service up from it without pulling or building (plan v3.13 item 7: with --no-build, a rollback whose tag line
+// failed or was skipped stops with an error instead of building something that is not the old image). They are written for a person at the host's shell, so they use the
 // host's `docker compose`, not the binary whalenurse itself runs, and carry the project, directory, files and env files
 // the container was created with, so they are exact.
 //
@@ -13,7 +14,7 @@ import "strings"
 func RollbackCommands(p Project, ref, oldImage string, alsoServices ...string) (tag, up string) {
 	tag = "docker image tag " + oldImage + " " + shellWord(ref)
 	args := append([]string{"docker", "compose"}, p.baseArgs()...)
-	args = append(args, "up", "-d", "--no-deps", "--pull", "never", p.Service)
+	args = append(args, "up", "-d", "--no-deps", "--pull", "never", "--no-build", p.Service)
 	for _, s := range alsoServices {
 		if ValidService(s) {
 			args = append(args, s)

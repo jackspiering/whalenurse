@@ -206,7 +206,7 @@ func TestUpgradeMessageCarriesTheSidecarsRollback(t *testing.T) {
 			t.Errorf("lacks %q:\n%s", want, m.Body)
 		}
 	}
-	if !strings.HasSuffix(up, "up -d --no-deps --pull never web side side2") {
+	if !strings.HasSuffix(up, "up -d --no-deps --pull never --no-build web side side2") {
 		t.Fatalf("%s", up)
 	}
 	if utf8.RuneCountInString(m.Body) > MaxBodyPinned {

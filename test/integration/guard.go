@@ -612,7 +612,9 @@ var rollbackTagRE = regexp.MustCompile(`^docker image tag (sha256:[0-9a-f]{64}) 
 
 // RunRollback runs the two lines of the rollback an "upgraded during heal" message gave, exactly as a person would paste
 // them, after checking each: the first must tag an image ID onto a reference of the test registry; the second must be
-// `docker compose -p <test project> [--project-directory D] [-f F]... [--env-file E]... up -d --no-deps --pull never <svc>...` (the parent and the sidecars recreated with it).
+// `docker compose -p <test project> [--project-directory D] [-f F]... [--env-file E]... up -d --no-deps --pull never --no-build <svc>...`
+// (the parent and the sidecars recreated with it; plan v3.13 item 7 added --no-build, and the form written before it, without
+// the flag, is accepted too).
 // Anything else is REFUSED, so a rollback that named another project or added a flag cannot do harm.
 func (g *Guard) RunRollback(ctx context.Context, tagLine, upLine string) error {
 	m := rollbackTagRE.FindStringSubmatch(tagLine)
@@ -639,6 +641,9 @@ func (g *Guard) RunRollback(ctx context.Context, tagLine, upLine string) error {
 		i += 2
 	}
 	rest = rest[i:]
+	if len(rest) > len(tail) && rest[len(tail)] == "--no-build" {
+		tail = append(tail, "--no-build")
+	}
 	if len(rest) < len(tail)+1 {
 		return refuse("rollback line %q does not end in `%s <service>...`", upLine, strings.Join(tail, " "))
 	}

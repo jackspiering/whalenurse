@@ -161,7 +161,7 @@ func TestRung2TakesAnImageOnlyMoveForAPullEnabledContainerAndSaysSo(t *testing.T
 	if a["ref"] != "web:1" || a["old"] != imgOldID || a["new"] != imgNewID || a["old_image"] != imgOldID || a["ok"] != "true" {
 		t.Fatalf("%+v", a)
 	}
-	if a["rollback_tag"] != "docker image tag "+imgOldID+" web:1" || !strings.HasSuffix(a["rollback_up"], "up -d --no-deps --pull never web") {
+	if a["rollback_tag"] != "docker image tag "+imgOldID+" web:1" || !strings.HasSuffix(a["rollback_up"], "up -d --no-deps --pull never --no-build web") {
 		t.Fatalf("%+v", a)
 	}
 	if h.count(engine.TagMoved) != 0 {
@@ -263,7 +263,7 @@ func TestSidecarTakesTheTagItsParentsPullMoved(t *testing.T) {
 		t.Fatalf("%v", h.rec.Types())
 	}
 	a := moved[0].Attrs
-	if a["sidecars"] != "side" || !strings.HasSuffix(a["rollback_up"], "up -d --no-deps --pull never web side") {
+	if a["sidecars"] != "side" || !strings.HasSuffix(a["rollback_up"], "up -d --no-deps --pull never --no-build web side") {
 		t.Fatalf("the sidecar's rollback must be in the same message: %+v", a)
 	}
 	if h.count(engine.Upgraded) != 0 {

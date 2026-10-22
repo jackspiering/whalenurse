@@ -420,7 +420,11 @@ func TestRegistryHelpersStayInTheTestRegistry(t *testing.T) {
 func TestRunRollbackRunsOnlyWhatARollbackIs(t *testing.T) {
 	id := "sha256:" + strings.Repeat("a", 64)
 	tagLine := "docker image tag " + id + " " + regRef
-	good := "docker compose -p whalenurse-test-a --project-directory /tmp/s -f /tmp/s/compose.yaml up -d --no-deps --pull never web"
+	good := "docker compose -p whalenurse-test-a --project-directory /tmp/s -f /tmp/s/compose.yaml up -d --no-deps --pull never --no-build web"
+	// The form written before plan v3.13 item 7, without --no-build, is still a rollback.
+	if err := (&Guard{R: &stub{}}).RunRollback(context.Background(), tagLine, strings.Replace(good, " --no-build", "", 1)); err != nil {
+		t.Fatal(err)
+	}
 	s := &stub{}
 	g := &Guard{R: s}
 	ctx := context.Background()
@@ -444,6 +448,9 @@ func TestRunRollbackRunsOnlyWhatARollbackIs(t *testing.T) {
 		"quoted path":           {tagLine, strings.Replace(good, "/tmp/s ", "'/tmp/s;x' ", 1)},
 		"a shell metacharacter": {tagLine, good + " ; id"},
 		"pull may pull":         {tagLine, strings.Replace(good, "--pull never", "--pull always", 1)},
+		"may build":             {tagLine, strings.Replace(good, "--no-build", "--build", 1)},
+		"--no-build twice":      {tagLine, strings.Replace(good, "--no-build", "--no-build --no-build", 1)},
+		"--no-build elsewhere":  {tagLine, strings.Replace(strings.Replace(good, " --no-build", "", 1), "up -d", "up --no-build -d", 1)},
 		"not docker":            {tagLine, "sh -c id"},
 		"tag onto a bad ref":    {"docker image tag " + id + " prod/app:1", good},
 		"tag from a name":       {"docker image tag busybox:1.37 " + regRef, good},

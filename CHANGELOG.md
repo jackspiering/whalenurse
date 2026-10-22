@@ -16,6 +16,12 @@ workflow refuses an undated section.
   the note that says so cut the end of the message, which is where the rollback commands are; the note now goes before
   them. Whitespace inside a quoted path of the commands was collapsed to one space; the commands are now sent byte for byte.
 
+### Changed
+
+- **The rollback `up` line has `--no-build`**, like every other `up` whalenurse runs. If the tag line failed or was skipped,
+  the `up` now stops with an error instead of building an image that is not the old one. Rollbacks already shown keep
+  their form.
+
 ## [0.1.2] - 2026-10-22
 
 A security fix (a compose label could put a flag on the compose command line), fixes from a code review, private

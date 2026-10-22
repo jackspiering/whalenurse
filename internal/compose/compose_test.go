@@ -290,7 +290,7 @@ func TestRollbackCommandsAreExactAndQuoted(t *testing.T) {
 	if want := "docker image tag sha256:" + strings.Repeat("a", 64) + " localhost:5000/app:latest"; tag != want {
 		t.Errorf("tag = %q", tag)
 	}
-	if want := "docker compose -p whalenurse-test-x --project-directory /opt/stacks/x -f /opt/stacks/x/compose.yaml -f /opt/stacks/x/override.yaml --env-file /opt/stacks/x/.env up -d --no-deps --pull never web"; up != want {
+	if want := "docker compose -p whalenurse-test-x --project-directory /opt/stacks/x -f /opt/stacks/x/compose.yaml -f /opt/stacks/x/override.yaml --env-file /opt/stacks/x/.env up -d --no-deps --pull never --no-build web"; up != want {
 		t.Errorf("up = %q", up)
 	}
 	// A path with a space or a quote is one shell word.
@@ -583,7 +583,7 @@ func TestPullPolicyCommandLineAndParsing(t *testing.T) {
 
 func TestRollbackCommandsNameTheSidecarsInOneUp(t *testing.T) {
 	_, up := RollbackCommands(proj(), "app:1", "sha256:x", "side", "side2")
-	if !strings.HasSuffix(up, "up -d --no-deps --pull never web side side2") {
+	if !strings.HasSuffix(up, "up -d --no-deps --pull never --no-build web side side2") {
 		t.Fatalf("%s", up)
 	}
 }

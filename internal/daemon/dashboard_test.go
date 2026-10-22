@@ -170,7 +170,7 @@ func (r *dashboardRig) drive() {
 	h.d.Engine().Note(engine.Target{Key: "nas/p/web/1", Name: "p-web-1"}, engine.Upgraded, "nginx:1: aaaaaaaaaaaa -> bbbbbbbbbbbb; recreated", map[string]string{
 		"ref": "nginx:1", "old": "sha256:" + strings.Repeat("a", 64), "new": "sha256:" + strings.Repeat("b", 64), "old_image": "sha256:" + strings.Repeat("a", 64), "ok": "true",
 		"rollback_tag": "docker image tag sha256:" + strings.Repeat("a", 64) + " nginx:1",
-		"rollback_up":  "docker compose -p p --project-directory /opt/stacks/p -f /opt/stacks/p/compose.yaml up -d --no-deps --pull never web",
+		"rollback_up":  "docker compose -p p --project-directory /opt/stacks/p -f /opt/stacks/p/compose.yaml up -d --no-deps --pull never --no-build web",
 	})
 	// A compose temporary name, as an event of a recreate carries it.
 	h.d.Engine().Note(engine.Target{Key: "nas/p/side/1", Name: "0123456789ab_p-side-1"}, engine.ActionResult, "recreate ok", map[string]string{"ok": "true"})
@@ -617,7 +617,7 @@ func TestRollbackIsOneCommandPerLineWithACopyButton(t *testing.T) {
 	if len(blocks) != 2 {
 		t.Fatalf("want two command blocks with a copy button each, got %d:\n%s", len(blocks), section(body, "Last upgrade during heal"))
 	}
-	if !strings.HasPrefix(blocks[0][1], "docker image tag sha256:") || !strings.Contains(blocks[1][1], "up -d --no-deps --pull never web") || strings.Contains(blocks[0][1]+blocks[1][1], "\n") {
+	if !strings.HasPrefix(blocks[0][1], "docker image tag sha256:") || !strings.Contains(blocks[1][1], "up -d --no-deps --pull never --no-build web") || strings.Contains(blocks[0][1]+blocks[1][1], "\n") {
 		t.Errorf("each block is exactly one command: %q", blocks)
 	}
 	_, js := r.fetch(t, "/static/app.js", "")

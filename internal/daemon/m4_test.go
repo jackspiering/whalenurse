@@ -162,7 +162,7 @@ func TestPullUpgradesRecreatesAndRepairsTheSidecar(t *testing.T) {
 	if want := "docker image tag " + imgLabel("web") + " web:1"; m["rollback_tag"] != want {
 		t.Fatalf("rollback_tag = %q", m["rollback_tag"])
 	}
-	if want := "docker compose -p p --project-directory /opt/stacks/p -f /opt/stacks/p/compose.yaml up -d --no-deps --pull never web"; m["rollback_up"] != want {
+	if want := "docker compose -p p --project-directory /opt/stacks/p -f /opt/stacks/p/compose.yaml up -d --no-deps --pull never --no-build web"; m["rollback_up"] != want {
 		t.Fatalf("rollback_up = %q", m["rollback_up"])
 	}
 	// The container really was replaced, the sidecar follows the new parent, and the heal ended in Recovered.

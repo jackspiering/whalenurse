@@ -905,7 +905,7 @@ func TestSidecarSharingTheImageTakesTheMovedTag(t *testing.T) {
 			moved = e
 		}
 	}
-	if moved.Attrs["sidecars"] != "side" || !strings.HasSuffix(moved.Attrs["rollback_up"], "up -d --no-deps --pull never app side") {
+	if moved.Attrs["sidecars"] != "side" || !strings.HasSuffix(moved.Attrs["rollback_up"], "up -d --no-deps --pull never --no-build app side") {
 		t.Fatalf("the sidecar's rollback must be in the message: %+v", moved.Attrs)
 	}
 	waitFor(t, "the upgrade message", 30*time.Second, func() bool { return len(hook.matching("upgraded during heal")) >= 1 })
