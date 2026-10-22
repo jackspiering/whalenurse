@@ -24,6 +24,11 @@ workflow refuses an undated section.
   healthcheck `exec_*` events of busy hosts filled the subscription during a long pull or recreate, after which Docker drops
   events for a subscriber that does not keep up, a manual stop's `kill` too. The subscription now asks only for the events
   whalenurse uses.
+- **One hung Docker call could stop all healing.** A container list or inspect that never returned held the main loop,
+  and `/healthz` said ok for up to 11 minutes. Every list, inspect and image inspect now has a 30-second timeout: a call that
+  hangs fails for that container, which is tried again at the next poll, and the rest are still healed. `/healthz` (and so the
+  image's health check and the uptime ping) now reports not ok when the Docker API has been failing for longer than twice the
+  poll interval, also while an action is running.
 
 ## [0.1.2] - 2026-10-22
 

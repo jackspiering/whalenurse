@@ -27,9 +27,10 @@ type Fake struct {
 	errs       chan error
 
 	// Hooks and switches, set before use.
-	FailMutations bool                           // every Restart/Start returns an error and is still recorded
-	OnMutate      func(f *Fake, verb, id string) // runs inside the call, before it returns
-	AfterInspect  func(f *Fake, ref string)      // runs after an Inspect call has read its result
+	FailMutations bool                                        // every Restart/Start returns an error and is still recorded
+	OnMutate      func(f *Fake, verb, id string)              // runs inside the call, before it returns
+	AfterInspect  func(f *Fake, ref string)                   // runs after an Inspect call has read its result
+	InspectWait   func(ctx context.Context, ref string) error // runs first; an error is Inspect's result (a hung or failing API)
 	ListErr       error
 	ServerErr     error // ServerVersion fails with this
 	EventsErr     error // every Events subscription ends at once with this, like a daemon that is down
@@ -160,7 +161,15 @@ func (f *Fake) List(context.Context) ([]Summary, error) {
 	return out, nil
 }
 
-func (f *Fake) Inspect(_ context.Context, ref string) (Container, error) {
+func (f *Fake) Inspect(ctx context.Context, ref string) (Container, error) {
+	f.mu.Lock()
+	wait := f.InspectWait
+	f.mu.Unlock()
+	if wait != nil {
+		if err := wait(ctx, ref); err != nil {
+			return Container{}, err
+		}
+	}
 	c, err := f.lookup(ref)
 	f.mu.Lock()
 	hook := f.AfterInspect

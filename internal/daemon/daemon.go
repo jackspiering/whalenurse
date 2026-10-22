@@ -96,6 +96,10 @@ type pending struct {
 	due time.Time
 }
 
+// readTimeout bounds every List, Inspect and ImageID the daemon makes (plan v3.13 item 13): a normal one takes
+// milliseconds, and one that hangs would otherwise stop the loop and with it all healing.
+const readTimeout = 30 * time.Second
+
 // Daemon is the healer.
 type Daemon struct {
 	o   Options
@@ -128,6 +132,7 @@ type Daemon struct {
 
 	eventsUp   atomic.Bool
 	eventsDown atomic.Int64 // unix nanos when the stream went down; 0 while up
+	apiFailing atomic.Int64 // unix nanos since when the Docker API has been failing (apiError); 0 while it answers
 	lastTick   atomic.Int64
 	acting     atomic.Int64 // unix nanos when the action in progress started; 0 when none
 }
@@ -142,7 +147,7 @@ func New(o Options) *Daemon {
 	}
 	g := o.Config
 	d := &Daemon{
-		o: o, cfg: g, rd: o.Reader, clk: o.Clock, log: o.Log,
+		o: o, cfg: g, rd: docker.WithReadTimeout(o.Reader, readTimeout), clk: o.Clock, log: o.Log,
 		eng: engine.New(engine.Params{
 			Host: g.HostID, BaseCooldown: g.Cooldown, RateLimit: g.RateLimit, DryRun: g.DryRun,
 			RecoveryPeriod: g.RecoveryPeriod, CrashloopAfter: g.CrashloopAfter, FlapLimit: g.FlapLimit, FlapWindow: g.FlapWindow,
@@ -242,7 +247,8 @@ func readBootID() string {
 func (d *Daemon) Engine() *engine.Engine { return d.eng }
 
 // Healthy reports whether the daemon is working: the events stream is up (or
-// has been down for less than twice the poll interval) and the loop is alive.
+// has been down for less than twice the poll interval), the Docker API answers
+// (or has failed for less than twice the poll interval) and the loop is alive.
 func (d *Daemon) Healthy() (bool, string) {
 	now := d.clk.Now()
 	limit := 2 * d.cfg.PollInterval
@@ -251,6 +257,10 @@ func (d *Daemon) Healthy() (bool, string) {
 		if now.Sub(down) > limit {
 			return false, fmt.Sprintf("docker events stream down for %s", now.Sub(down).Round(time.Second))
 		}
+	}
+	// Before the action tolerance: with reads bounded the loop keeps ticking, and only this shows a dead API.
+	if since := d.apiFailing.Load(); since != 0 && now.Sub(time.Unix(0, since)) > limit {
+		return false, fmt.Sprintf("docker API failing for %s", now.Sub(time.Unix(0, since)).Round(time.Second))
 	}
 	// The loop is busy, not dead, while it runs an action: a pull or a recreate can take minutes.
 	if since := d.acting.Load(); since != 0 && now.Sub(time.Unix(0, since)) < pullTimeout+time.Minute {
@@ -542,6 +552,7 @@ func (d *Daemon) HandleEvent(ctx context.Context, ev docker.Event) {
 func (d *Daemon) apiError(what string, err error) {
 	if !d.apiDown {
 		d.apiDown = true
+		d.apiFailing.Store(d.clk.Now().UnixNano())
 		d.log.Warn("docker API not ready; no incident is opened, will retry", "while", what, "error", err.Error())
 	}
 }
@@ -549,6 +560,7 @@ func (d *Daemon) apiError(what string, err error) {
 func (d *Daemon) apiOK() {
 	if d.apiDown {
 		d.apiDown = false
+		d.apiFailing.Store(0)
 		d.log.Info("docker API is answering again")
 	}
 }
