@@ -184,12 +184,12 @@ func render(e engine.Event, c rctx) (m Message, dedupe string, ok bool) {
 		detail = append(detail, e.Message, "the ladder ends after the restart rung")
 
 	case engine.Paused:
-		subject, headline = "", "paused "+scope
+		subject, headline = scope, "paused"
 		detail = append(detail, e.Message)
 		once = false
 
 	case engine.Resumed:
-		subject, headline = "", "resumed "+scope
+		subject, headline = scope, "resumed"
 		detail = append(detail, e.Message)
 		once = false
 
@@ -212,19 +212,12 @@ func compose(c rctx, e engine.Event, subject, headline string, detail, pinned []
 	if host == "" {
 		host = c.host
 	}
-	// The headline is what the push is about, so a long container name is what gets cut, not the headline.
 	marker := ""
 	if c.dryRun {
 		marker = DryRunMarker + " "
 	}
-	title := marker + host + ": " + headline
-	if subject != "" && subject != host {
-		room := MaxTitle - utf8.RuneCountInString(marker+host+":  "+headline)
-		if room < 8 {
-			room = 8
-		}
-		title = marker + host + ": " + cut(subject, room) + " " + headline
-	}
+	verbFirst := e.Type == engine.Paused || e.Type == engine.Resumed // "paused <scope>": the scope is the subject
+	title := titleOf(marker, host, subject, headline, verbFirst)
 	keyLine := e.Key
 	if keyLine == "" {
 		keyLine = "host " + host
@@ -249,6 +242,38 @@ func compose(c rctx, e engine.Event, subject, headline string, detail, pinned []
 		lines = lines[:n-1]
 	}
 	return Message{Title: cut(title, MaxTitle), Body: fit(lines, room) + tail, Critical: critical, pinned: tail}
+}
+
+// titleOf lays out a title within MaxTitle: the marker, the host, the subject (the container) and the headline. The
+// headline is what the push is about, so it is never cut: the subject gives way first (cut, or left out when fewer than 8
+// runes are left; the body's key line still names it), then the host (cut, or left out below 4). For a pause the subject
+// is the scope and stands after the verb.
+func titleOf(marker, host, subject, headline string, verbFirst bool) string {
+	n := utf8.RuneCountInString
+	if subject == host {
+		subject = ""
+	}
+	hostPart := host + ": "
+	if fixed := n(marker) + n(headline); fixed+n(hostPart) > MaxTitle {
+		switch room := MaxTitle - fixed - 2; {
+		case room >= 4:
+			hostPart = cut(host, room) + ": "
+		default:
+			hostPart = ""
+		}
+	}
+	if subject != "" {
+		room := MaxTitle - n(marker+hostPart+headline) - 1
+		switch {
+		case room < 8:
+			subject = ""
+		case verbFirst:
+			return marker + hostPart + headline + " " + cut(subject, room)
+		default:
+			return marker + hostPart + cut(subject, room) + " " + headline
+		}
+	}
+	return cut(marker+hostPart+headline, MaxTitle) // the backstop cannot cut with the current headlines
 }
 
 // tagMovedMessage fills in the "upgraded during heal" message (plan §3.7): the old and the new digest, and the exact

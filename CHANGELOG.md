@@ -45,6 +45,9 @@ workflow refuses an undated section.
 - **A message no URL could take is no longer recorded as sent.** With no notification URL, or only invalid ones, the
   dedupe still remembered each message for 24 hours, so after a working URL was added and whalenurse restarted, the
   version-gate warning and the "left down" advisories for problems that already existed were not sent.
+- **A notification title keeps its headline.** With a long host ID (the default in a container is its 12-character ID)
+  or the dry-run marker, the end of the title was cut, so a phone push could lose "SUSPENDED" or "=warn)". The container
+  name gives way first now, then the host; the message body still names both.
 
 ### Documentation
 
