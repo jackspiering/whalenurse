@@ -17,6 +17,9 @@ workflow refuses an undated section.
 - A second `whalenurse run` no longer takes over a running daemon's control socket (its exit left the live daemon
   unreachable by the CLI and its health check): it refuses to start, and a second live run on the same data directory is
   refused by a lock on it.
+- Under systemd, whalenurse no longer takes a container with `ipc: shareable` for its own container (it saw that
+  container's `/dev/shm` mount in the host's mount table) and so no longer skips healing it. Its own container ID is read
+  only from the `/etc/hostname`, `/etc/hosts` and `/etc/resolv.conf` binds.
 
 ### Changed
 

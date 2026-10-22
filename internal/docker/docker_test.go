@@ -156,3 +156,41 @@ func TestInspectNeverCarriesTheEnvironmentTheCommandOrTheMounts(t *testing.T) {
 		t.Fatalf("the snapshot carries something it should not: %s", dump)
 	}
 }
+
+// Under systemd whalenurse sees the host's mount table, which lists the mounts dockerd makes for other containers: a
+// shareable IPC donor's /dev/shm tmpfs is mounted at <data-root>/containers/<id>/mounts/shm (moby ShmResourcePath). That
+// is not whalenurse's container, and taking it for its own made whalenurse skip it as "self" for ever.
+func TestSelfIDIgnoresOtherContainersMountsOnTheHost(t *testing.T) {
+	other := strings.Repeat("ab", 32)
+	host := "22 1 254:1 / / rw,relatime shared:1 - ext4 /dev/vda1 rw\n" +
+		"1234 22 0:123 / /var/lib/docker/containers/" + other +
+		"/mounts/shm rw,nosuid,nodev,noexec,relatime shared:456 - tmpfs shm rw,size=65536k\n" +
+		"1235 22 254:1 /var/lib/docker/containers/" + other + "/mounts/secrets /var/lib/docker/containers/" + other +
+		"/mounts/secrets ro,relatime shared:457 - ext4 /dev/vda1 rw\n"
+	if got := SelfID(strings.NewReader(host)); got != "" {
+		t.Fatalf("host mountinfo: got %q, want \"\"", got)
+	}
+
+	// In a container, another container's mount listed first does not hide the own /etc binds.
+	own := strings.Repeat("1f", 32)
+	mi := "36 25 0:32 / / rw - overlay overlay rw\n" +
+		"40 36 0:123 / /var/lib/docker/containers/" + other + "/mounts/shm rw - tmpfs shm rw\n" +
+		"412 36 8:1 /var/lib/docker/containers/" + own + "/hostname /etc/hostname rw - ext4 /dev/sda1 rw\n"
+	if got := SelfID(strings.NewReader(mi)); got != own {
+		t.Fatalf("container with another container's mount first: got %q, want the own ID", got)
+	}
+
+	// A data root on a filesystem of its own: the root field is relative to that filesystem.
+	mi = "36 25 0:32 / / rw - overlay overlay rw\n" +
+		"413 36 8:17 /containers/" + own + "/hosts /etc/hosts rw - ext4 /dev/sdb1 rw\n"
+	if got := SelfID(strings.NewReader(mi)); got != own {
+		t.Fatalf("data root on its own filesystem: got %q", got)
+	}
+
+	// The own ID in a mount point other than /etc/{hostname,hosts,resolv.conf} does not count.
+	mi = "36 25 0:32 / / rw - overlay overlay rw\n" +
+		"414 36 8:1 /var/lib/docker/containers/" + other + "/hostname /mnt/x rw - ext4 /dev/sda1 rw\n"
+	if got := SelfID(strings.NewReader(mi)); got != "" {
+		t.Fatalf("a bind elsewhere: got %q", got)
+	}
+}
