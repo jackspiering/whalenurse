@@ -23,6 +23,7 @@ var funcs = template.FuncMap{
 	"message":       message,
 	"relBadge":      relBadge,
 	"blockedRung":   blockedRung,
+	"shellWord":     shellWord,
 	"ifelse": func(c bool, a, b string) string {
 		if c {
 			return a
@@ -359,4 +360,14 @@ func eventText(typ, msg string) template.HTML {
 		}
 	}
 	return message(msg)
+}
+
+// shellWord quotes a word for a POSIX shell only when it needs it, as compose.ShellWord does (internal/web imports
+// internal/api only, so it is a copy; a test pins the two to the same output). A command the page tells the user to
+// paste names a project and a service from labels, which nothing checks for shell metacharacters.
+func shellWord(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-") == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

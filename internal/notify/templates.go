@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	wncompose "github.com/jackspiering/whalenurse/internal/compose"
 	"github.com/jackspiering/whalenurse/internal/engine"
 )
 
@@ -395,7 +396,7 @@ func unsuspendCmd(scope string) string {
 	if scope == "" {
 		return "whalenurse unsuspend <scope>"
 	}
-	return "whalenurse unsuspend " + scope
+	return "whalenurse unsuspend " + wncompose.ShellWord(scope) // the scope comes from labels: quoted when it needs it
 }
 
 // verbOf names an action for a message: the past tense, and the failure.
@@ -451,14 +452,14 @@ func shortFindings(f string) string {
 func driftHint(findings, scope string) string {
 	switch {
 	case strings.Contains(findings, "can't verify drift (compose"):
-		return "hint: whalenurse's compose is not the one that made it. Mount the host plugin at /host/docker-compose, or: docker compose up -d " + serviceOf(scope)
+		return "hint: whalenurse's compose is not the one that made it. Mount the host plugin at /host/docker-compose, or: docker compose up -d " + wncompose.ShellWord(serviceOf(scope))
 	case reUpgraded.MatchString(findings):
 		v := reUpgraded.FindStringSubmatch(findings)
-		return "hint: compose upgraded " + v[1] + " to " + v[2] + " since creation: maybe a new hash layout, not an edit. If the file is fine: docker compose up -d " + serviceOf(scope)
+		return "hint: compose upgraded " + v[1] + " to " + v[2] + " since creation: maybe a new hash layout, not an edit. If the file is fine: docker compose up -d " + wncompose.ShellWord(serviceOf(scope))
 	case strings.Contains(findings, "the tag moved"):
-		return "hint: the image tag points at another image now. Take it with: docker compose up -d " + serviceOf(scope) + ", or re-tag the old one"
+		return "hint: the image tag points at another image now. Take it with: docker compose up -d " + wncompose.ShellWord(serviceOf(scope)) + ", or re-tag the old one"
 	case strings.Contains(findings, "would recreate") || strings.Contains(findings, "config --hash is"):
-		return "hint: the compose file, an env file or the image changed since creation. Apply it yourself: docker compose up -d " + serviceOf(scope)
+		return "hint: the compose file, an env file or the image changed since creation. Apply it yourself: docker compose up -d " + wncompose.ShellWord(serviceOf(scope))
 	}
 	return ""
 }

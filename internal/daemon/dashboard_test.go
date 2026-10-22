@@ -804,3 +804,23 @@ func TestRollbackThatTheRedactorWouldChangeIsWithheld(t *testing.T) {
 		t.Fatalf("the API withholds it too:\n%s", js)
 	}
 }
+
+// The banner's unsuspend command is shell-quoted: the project label comes from the container (or its image), and the
+// operator pastes the line into a host shell.
+func TestUnsuspendHintIsShellQuoted(t *testing.T) {
+	r := newRig(t, "")
+	h := r.h
+	a := h.running(hexID("d4"), "p$(id)", "web")
+	h.set(a.ID, func(c *docker.Container) { c.Labels[config.LabelActions] = "restart" })
+	h.tick()
+	c := h.set(a.ID, unhealthy)
+	h.event(c, "health_status", "unhealthy")
+	h.advance(15 * time.Minute)
+	_, body := r.fetch(t, "/containers/nas/"+url.PathEscape("p$(id)")+"/web/1", "")
+	if !strings.Contains(body, "SUSPENDED") {
+		t.Fatalf("not suspended:\n%s", body)
+	}
+	if !strings.Contains(body, "unsuspend &#39;p$(id)/web&#39;") {
+		t.Fatalf("the unsuspend command must be quoted:\n%s", section(body, "SUSPENDED"))
+	}
+}

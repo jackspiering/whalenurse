@@ -8,7 +8,7 @@
 <div class="banner banner-bad" role="status">
   <strong>SUSPENDED ({{.Reason}}){{if not .Since.IsZero}} since {{timeTag .Since}}{{end}}.</strong>
   {{if $.Banner}}{{$.Banner}}{{else if .Cause}}{{message .Cause}}{{end}}
-  <br>Nothing more is tried until it recovers, is recreated or started by hand, or you run <code>docker exec whalenurse /whalenurse unsuspend {{$.Scope}}</code>.
+  <br>Nothing more is tried until it recovers, is recreated or started by hand, or you run <code>docker exec whalenurse /whalenurse unsuspend {{shellWord $.Scope}}</code>.
 </div>
 {{end}}
 {{with .Healer.Paused}}

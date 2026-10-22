@@ -1,6 +1,7 @@
 package web
 
 import (
+	"github.com/jackspiering/whalenurse/internal/compose"
 	"go/build"
 	"regexp"
 	"strings"
@@ -219,5 +220,14 @@ func TestBlockedRungHasItsOwnMarker(t *testing.T) {
 	c.Healer.Suspended.Reason, c.Healer.RungsRun = "drift", 3
 	if blockedRung(c) != "" {
 		t.Error("nothing is left to block")
+	}
+}
+
+// The page's copy of the shell quoting gives what compose's does, for ordinary and hostile names.
+func TestShellWordMatchesCompose(t *testing.T) {
+	for _, s := range []string{"", "p/web", "stack-1/web_2.x", "p$(id)/web", "w;id", "it's", "a b", "`x`", "a\tb", "-f", "p|q", "ünï/cødé"} {
+		if got, want := shellWord(s), compose.ShellWord(s); got != want {
+			t.Errorf("%q: %q, compose says %q", s, got, want)
+		}
 	}
 }

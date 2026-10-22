@@ -187,3 +187,20 @@ func TestTheHeadlineSurvivesALongHost(t *testing.T) {
 		}
 	}
 }
+
+// The commands a message tells the user to paste are shell-quoted: a project or service label is not checked by Docker,
+// and an image can ship one. An ordinary scope renders unchanged.
+func TestUnsuspendCommandIsShellQuoted(t *testing.T) {
+	m := renderOne(t, ev(engine.Suspended, "nas/p$(id)/web/1", "every rung ran or was unavailable: unhealthy", map[string]string{"reason": "ladder"}), rctx{})
+	if !strings.Contains(m.Body, "whalenurse unsuspend 'p$(id)/web'") {
+		t.Errorf("%s", m.Body)
+	}
+	d := renderOne(t, ev(engine.DriftBlocked, "nas/p/w;id/1", "x", map[string]string{"findings": "the tag moved"}), rctx{})
+	if !strings.Contains(d.Body, "whalenurse unsuspend 'p/w;id'") || !strings.Contains(d.Body, "docker compose up -d 'w;id'") {
+		t.Errorf("%s", d.Body)
+	}
+	ok := renderOne(t, ev(engine.Suspended, webKey, "every rung ran or was unavailable: unhealthy", map[string]string{"reason": "ladder"}), rctx{})
+	if !strings.Contains(ok.Body, "whalenurse unsuspend stack/web") {
+		t.Errorf("an ordinary scope is not quoted: %s", ok.Body)
+	}
+}

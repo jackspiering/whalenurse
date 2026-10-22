@@ -12,7 +12,7 @@ import "strings"
 // `up` names them after the service, so a single paste puts them all back. A name compose could not have written (it comes
 // from a label, see Project.Validate) is left out rather than pasted into a shell as a flag.
 func RollbackCommands(p Project, ref, oldImage string, alsoServices ...string) (tag, up string) {
-	tag = "docker image tag " + oldImage + " " + shellWord(ref)
+	tag = "docker image tag " + oldImage + " " + ShellWord(ref)
 	args := append([]string{"docker", "compose"}, p.baseArgs()...)
 	args = append(args, "up", "-d", "--no-deps", "--pull", "never", "--no-build", p.Service)
 	for _, s := range alsoServices {
@@ -21,13 +21,14 @@ func RollbackCommands(p Project, ref, oldImage string, alsoServices ...string) (
 		}
 	}
 	for i, a := range args {
-		args[i] = shellWord(a)
+		args[i] = ShellWord(a)
 	}
 	return tag, strings.Join(args, " ")
 }
 
-// shellWord quotes a word for a POSIX shell only when it needs it.
-func shellWord(s string) string {
+// ShellWord quotes a word for a POSIX shell only when it needs it. Every command whalenurse tells a person to paste goes
+// through it (the rollback here, the unsuspend and up commands of the notifications).
+func ShellWord(s string) string {
 	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-") == "" {
 		return s
 	}

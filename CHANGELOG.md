@@ -48,6 +48,9 @@ workflow refuses an undated section.
 - **A notification title keeps its headline.** With a long host ID (the default in a container is its 12-character ID)
   or the dry-run marker, the end of the title was cut, so a phone push could lose "SUSPENDED" or "=warn)". The container
   name gives way first now, then the host; the message body still names both.
+- **The unsuspend and `docker compose up` commands to paste are shell-quoted.** The SUSPENDED banner and the
+  notifications put the project and service names from the container's labels (which an image can ship) into a command
+  unquoted, so a name with `$(...)` or `;` would run in the shell it was pasted into. Ordinary names show unchanged.
 
 ### Documentation
 
