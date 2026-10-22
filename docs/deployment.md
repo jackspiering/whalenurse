@@ -147,6 +147,10 @@ Differences from the container:
   unit's `KillMode=mixed` (systemd's default would SIGTERM compose itself) and `TimeoutStopSec=60s`. In a container the
   examples' `stop_grace_period: 60s` does the same; keep it well below 85 s, because a stop of the Docker daemon waits for
   the longest `stop_grace_period` plus 5 s, and systemd stops `docker.service` after 90 s by default.
+- `Requires=docker.service` stops whalenurse when Docker is stopped (`systemctl stop docker` for maintenance), and
+  `WantedBy=multi-user.target docker.service` starts it again when Docker starts. A unit from 0.1.2 or earlier has only
+  `multi-user.target`: install the new file, then `sudo systemctl daemon-reload && sudo systemctl reenable whalenurse`
+  (`reenable` adds the `docker.service.wants/` link).
 - If a hardened setting gets in the way (an `EPERM` in the journal), loosen that one line and tell us in an issue: the filter
   fails with `EPERM`, not with a kill, so it shows.
 

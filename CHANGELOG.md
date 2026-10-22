@@ -29,6 +29,9 @@ workflow refuses an undated section.
   not failed, and runs again after the restart instead of the container being SUSPENDED. **Action:** give the container
   `stop_grace_period: 60s` (the examples do), or the systemd unit `KillMode=mixed` and `TimeoutStopSec=60s`, then
   `systemctl daemon-reload`.
+- **The systemd unit starts again with Docker.** After `systemctl stop docker` and a start, whalenurse stayed stopped
+  until a reboot. The unit is now also `WantedBy=docker.service`. **Action:** install the new unit, then
+  `systemctl daemon-reload && systemctl reenable whalenurse`.
 - A unit test now checks that the binary gives a dry run only the actors that change nothing, for the restart rung and
   for the compose rungs; before, only the restart one was checked, by an integration test.
 

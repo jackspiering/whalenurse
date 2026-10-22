@@ -71,4 +71,6 @@ SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 
 [Install]
-WantedBy=multi-user.target
+# docker.service too: Requires= above stops whalenurse when Docker is stopped, and only this starts it again when Docker is
+# started (by hand or by socket activation). After= keeps it ordered after Docker, so the stop order is unchanged.
+WantedBy=multi-user.target docker.service

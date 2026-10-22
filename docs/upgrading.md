@@ -15,6 +15,8 @@ Container: `docker compose pull whalenurse && docker compose up -d whalenurse` (
 recreate rung. If it is healing something when it is stopped, it lets that action finish first (up to 30 s; an action cut
 short is not counted and runs again after the restart), so give it the `stop_grace_period: 60s` of the examples, or the
 unit's `KillMode=mixed` and `TimeoutStopSec=60s`; with Docker's default of 10 s a recreate in flight can be killed halfway.
+After replacing the systemd unit, run `systemctl daemon-reload`, and `systemctl reenable whalenurse` when its `[Install]`
+section changed (it did after 0.1.2: `WantedBy=` gained `docker.service`, so whalenurse starts again with Docker).
 
 ## Backing up and restoring the store
 
