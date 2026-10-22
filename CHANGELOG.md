@@ -10,6 +10,13 @@ workflow refuses an undated section.
 
 ## [Unreleased]
 
+### Security
+
+- **Event text is redacted in the log and in notification bodies**, as it already was in the API. An error that quoted a
+  notification URL, the uptime ping URL, the HTTP token or a registry credential reached the container log unmasked, and
+  was pushed to every notification service (one URL's token to another URL's channel). The message and the free-text
+  attributes of every event now pass the redactor; a rollback command it would change is withheld from the notification.
+
 ### Changed
 
 - **The rollback `up` line has `--no-build`**, like every other `up` whalenurse runs. If the tag line failed or was skipped,

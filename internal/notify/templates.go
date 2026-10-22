@@ -291,6 +291,10 @@ func tagMovedMessage(e engine.Event, headline *string, detail *[]string) (pinned
 		// Byte for byte: whitespace inside a quoted path is part of the path, so these are never passed through oneLine.
 		return []string{"roll back:", a["rollback_tag"], a["rollback_up"]}
 	}
+	if a[attrRollbackWithheld] == "true" {
+		*detail = append(*detail, "rollback not shown: its commands contain part of a configured secret. Re-tag the old image, then up with --pull never --no-build")
+		return nil
+	}
 	*detail = append(*detail, "no rollback: the previous image was not present locally")
 	return nil
 }

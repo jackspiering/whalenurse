@@ -154,8 +154,11 @@ func runCmd(args []string) error {
 		log.Info("running in a container", "self", docker.ShortID(selfID))
 	}
 
+	// One redactor for the log, the notifications and the API: the notification and ping URLs, the HTTP token and the
+	// registry credentials.
+	red := newRedactor(cfg, regAuth.secrets())
 	bus := &engine.Bus{}
-	bus.Subscribe(daemon.LogSink(log))
+	bus.Subscribe(daemon.LogSink(log, red))
 
 	// State lives in SQLite under WHALENURSE_DATA_DIR. A dry run stores nothing: its
 	// incidents and SUSPENDED states are not real, and must not be there for the next
@@ -191,7 +194,7 @@ func runCmd(args []string) error {
 	}
 	bus.Subscribe(hub.Notify) // after the event log's own subscriber: the event is readable when the streams wake
 
-	nt, red := setupNotify(cfg, log, bus, ledger, regAuth.secrets())
+	nt := setupNotify(cfg, log, bus, ledger, red)
 	defer nt.Shutdown(5 * time.Second) // the last message before a stop is often the one that matters
 
 	var actor docker.Actor = cli
@@ -273,9 +276,7 @@ func runCmd(args []string) error {
 // notifyBackoff is the wait before each retry of a failed delivery; nil means the notifier's default. Tests shorten it.
 var notifyBackoff []time.Duration
 
-func setupNotify(cfg config.Global, log *slog.Logger, bus *engine.Bus, ledger notify.Ledger, secrets []string) (*notify.Notifier, *notify.Redactor) {
-	// The HTTP token and the registry credentials are redacted from everything the API shows as well.
-	red := notify.NewRedactorWith(secrets, append(append([]string{}, cfg.NotifyURLs...), cfg.PingURL, cfg.HTTPToken)...)
+func setupNotify(cfg config.Global, log *slog.Logger, bus *engine.Bus, ledger notify.Ledger, red *notify.Redactor) *notify.Notifier {
 	targets := notify.NewTargets(cfg.NotifyURLs, red, cfg.NotifyTimeout)
 	for _, t := range targets {
 		if t.Sender == nil {
@@ -292,7 +293,13 @@ func setupNotify(cfg config.Global, log *slog.Logger, bus *engine.Bus, ledger no
 	} else {
 		log.Info("notifications", "urls", len(cfg.NotifyURLs), "per_url_limit_per_hour", cfg.NotifyRateLimit, "dry_run_marked", cfg.DryRun)
 	}
-	return nt, red
+	return nt
+}
+
+// newRedactor knows every secret of the configuration: the notification URLs, the uptime ping URL, the HTTP token and the
+// registry credentials of the pull rung.
+func newRedactor(cfg config.Global, secrets []string) *notify.Redactor {
+	return notify.NewRedactorWith(secrets, append(append([]string{}, cfg.NotifyURLs...), cfg.PingURL, cfg.HTTPToken)...)
 }
 
 // composeFor finds the compose binary (plan §3.4: WHALENURSE_COMPOSE_BIN, then the host plugin mounted read-only, then

@@ -4,6 +4,8 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/jackspiering/whalenurse/internal/engine"
 )
 
 // mask replaces every secret in a redacted string.
@@ -134,6 +136,36 @@ func (r *Redactor) Redact(s string) string {
 		}
 	}
 	return s
+}
+
+// controlAttrs are the event attributes that steer the templates and the dedupe (an action, a rung, ok, a reason, a time).
+// whalenurse writes them itself and no Docker or compose text reaches them, so Event leaves them alone: a short query value
+// of a URL ("true", "json") must not turn ok=true into ok=***.
+var controlAttrs = map[string]bool{
+	"action": true, "at": true, "class": true, "count": true, "dry_run": true, "held": true, engine.AttrIncident: true,
+	"moved_at": true, "not_applicable": true, "ok": true, "opened": true, "outcome": true, "reason": true, "rung": true,
+	"rungs": true, "scope": true, "until": true,
+}
+
+// Event returns a copy of e with its free text redacted: the message and every attribute but the control ones. The
+// identity (host, key, container) is kept, so a message still names what it is about. The log and the notifications
+// use it; the API applies its own rules (api.Service).
+func (r *Redactor) Event(e engine.Event) engine.Event {
+	if r == nil {
+		return e
+	}
+	e.Message = r.Redact(e.Message)
+	if len(e.Attrs) > 0 {
+		attrs := make(map[string]string, len(e.Attrs))
+		for k, v := range e.Attrs {
+			if !controlAttrs[k] {
+				v = r.Redact(v)
+			}
+			attrs[k] = v
+		}
+		e.Attrs = attrs
+	}
+	return e
 }
 
 // Err returns the redacted text of err, or "" for nil.

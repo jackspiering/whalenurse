@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -115,9 +117,18 @@ var regAuthValue = base64.StdEncoding.EncodeToString([]byte("reg-USER-82001:reg-
 func TestNoTokenReachesTheLogsStatusHealthzOrTheTestOutput(t *testing.T) {
 	var statuses = map[string]int{"401": 401, "500": 500}
 	var urls []string
+	// What the notification services were sent: the bodies are an output too.
+	var sentMu sync.Mutex
+	var sent bytes.Buffer
 	for name, code := range statuses {
 		code := code
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "nope "+r.URL.Path, code) }))
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			b, _ := io.ReadAll(r.Body)
+			sentMu.Lock()
+			sent.Write(append(b, '\n'))
+			sentMu.Unlock()
+			http.Error(w, "nope "+r.URL.Path, code)
+		}))
 		defer srv.Close()
 		host := strings.TrimPrefix(srv.URL, "http://")
 		switch name {
@@ -156,13 +167,14 @@ func TestNoTokenReachesTheLogsStatusHealthzOrTheTestOutput(t *testing.T) {
 	for _, w := range warns {
 		log.Warn("config", "detail", w)
 	}
-	bus := &engine.Bus{}
-	bus.Subscribe(daemon.LogSink(log))
 	regAuth, err := loadRegistryAuth(cfg, log)
 	if err != nil {
 		t.Fatal(err)
 	}
-	nt, red := setupNotify(cfg, log, bus, nil, regAuth.secrets())
+	red := newRedactor(cfg, regAuth.secrets())
+	bus := &engine.Bus{}
+	bus.Subscribe(daemon.LogSink(log, red))
+	nt := setupNotify(cfg, log, bus, nil, red)
 	// What compose's stderr can say about a refused login: the error text of a failed pull goes through the redactor.
 	log.Warn("pull failed", "error", red.Redact("pull: unauthorized: user reg-USER-82001 password reg-PASS-82002 auth "+regAuthValue+" token reg-IDTOKEN-82003"))
 	pinger := &notify.Pinger{URL: cfg.PingURL, Interval: time.Hour, Timeout: time.Second, Log: log, Redact: red}
@@ -174,6 +186,13 @@ func TestNoTokenReachesTheLogsStatusHealthzOrTheTestOutput(t *testing.T) {
 	key := "nas/p/web/1"
 	bus.Publish(engine.Event{Host: "nas", Key: key, Container: "p-web-1", Type: engine.Suspended, Message: "every rung ran or was unavailable: unhealthy", Attrs: map[string]string{"reason": "ladder"}})
 	bus.Publish(engine.Event{Host: "nas", Key: key, Container: "p-web-1", Type: engine.Recovered, Message: "healthy"})
+	// Event text that quotes the secrets (a compose or Docker error that echoes a URL from a stack's own files): the log
+	// line and every message body are redacted, the key and the host are not.
+	leaky := "restart failed: Post \"" + urls[0] + "\": boom " + cfg.HTTPToken + " reg-PASS-82002 " + regAuthValue
+	bus.Publish(engine.Event{Host: "nas", Key: key, Container: "p-web-1", Type: engine.ActionResult, Message: leaky,
+		Attrs: map[string]string{"action": "restart", "rung": "restart", "ok": "false", "error": leaky}})
+	bus.Publish(engine.Event{Host: "nas", Key: key, Container: "p-web-1", Type: engine.DriftBlocked, Message: "recreate skipped by the drift guard",
+		Attrs: map[string]string{"findings": "config: compose says " + cfg.PingURL + " reg-IDTOKEN-82003 would recreate"}})
 	pinger.Tick(t.Context())
 	nt.Shutdown(30 * time.Second) // delivers everything, retries included
 
@@ -205,6 +224,9 @@ func TestNoTokenReachesTheLogsStatusHealthzOrTheTestOutput(t *testing.T) {
 		"logs": logs.String(), "notify test": test.String(), "status text": text.String(), "status json": string(js),
 		"healthz": healthz.Body.String(), "socket status": sockStatus.Body.String(),
 		"401 body": denied.Body.String() + fmt.Sprint(denied.Header()),
+		// A generic:// URL's own "$k=" value is a field of the payload sent to that same service (Shoutrrr's design, not a
+		// leak); the rest of every body is checked.
+		"sent messages": strings.ReplaceAll(sent.String(), `"k":"tok-QUERY-90421"`, ""),
 	}
 	for name, out := range outputs {
 		if out == "" {
@@ -235,6 +257,11 @@ func TestNoTokenReachesTheLogsStatusHealthzOrTheTestOutput(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "registry credentials for the pull rung") || !strings.Contains(logs.String(), "***") {
 		t.Errorf("the log lacks the registry line or the redacted pull error:\n%s", logs.String())
+	}
+	for _, want := range []string{"restart failed: Post", "recreate skipped by the drift guard"} {
+		if !strings.Contains(logs.String(), want) || !strings.Contains(sent.String(), "nas/p/web/1") {
+			t.Errorf("the leaky events were not logged or sent (%q):\n%s\n%s", want, logs.String(), sent.String())
+		}
 	}
 	for _, want := range []string{"notification failed", "notification URL is invalid", "uptime ping failed"} {
 		if !strings.Contains(logs.String(), want) {

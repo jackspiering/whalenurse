@@ -237,6 +237,7 @@ func (n *Notifier) routeSafely(e engine.Event) {
 }
 
 func (n *Notifier) route(e engine.Event) {
+	e = n.redacted(e)
 	switch e.Type {
 	case engine.ActionStarted:
 		// Only remembered: the message goes out when the action ends, and says why it was started.
@@ -267,6 +268,26 @@ func (n *Notifier) route(e engine.Event) {
 		w.offer(m)
 	}
 }
+
+// redacted is the event the templates see: its free text redacted, so no body carries a secret that an error quoted (and
+// URL #1's token is not pushed to URL #2's service). The rollback commands are pasted into a shell, so they are sent as
+// they were built or not at all: when the redactor would change either, both are withheld and the message says so.
+func (n *Notifier) redacted(e engine.Event) engine.Event {
+	tag, up := e.Attrs["rollback_tag"], e.Attrs["rollback_up"]
+	r := n.o.Redact.Event(e)
+	if tag != "" || up != "" {
+		if r.Attrs["rollback_tag"] == tag && r.Attrs["rollback_up"] == up {
+			return r
+		}
+		delete(r.Attrs, "rollback_tag")
+		delete(r.Attrs, "rollback_up")
+		r.Attrs[attrRollbackWithheld] = "true"
+	}
+	return r
+}
+
+// attrRollbackWithheld marks, inside the notifier only, an event whose rollback commands were withheld.
+const attrRollbackWithheld = "rollback_withheld"
 
 // forget drops the remembered messages of one type for one key.
 func (n *Notifier) forget(typ engine.EventType, key string) {

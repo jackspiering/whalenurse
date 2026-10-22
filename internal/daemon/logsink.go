@@ -5,12 +5,16 @@ import (
 	"log/slog"
 
 	"github.com/jackspiering/whalenurse/internal/engine"
+	"github.com/jackspiering/whalenurse/internal/notify"
 )
 
 // LogSink returns the domain-event subscriber that writes the structured log.
 // It reads the same stream the store and the notifier (internal/notify) do, so the log cannot disagree with them.
-func LogSink(log *slog.Logger) func(engine.Event) {
+// The message and the free-text attributes go through red first (an error can quote a notification URL, the token or a
+// registry credential); the identity of the event and its control attributes are written as they are.
+func LogSink(log *slog.Logger, red *notify.Redactor) func(engine.Event) {
 	return func(e engine.Event) {
+		e = red.Event(e)
 		level := slog.LevelInfo
 		switch e.Type {
 		case engine.Suspended, engine.NeedsRecreate, engine.ActionRefused, engine.DriftBlocked, engine.DriftWarned,

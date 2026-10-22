@@ -572,3 +572,67 @@ func TestHeldBackNoteOnTheWorstCaseUpgradeMessage(t *testing.T) {
 		t.Fatalf("%d runes:\n%s", utf8.RuneCountInString(got), got)
 	}
 }
+
+// Event text that quotes a configured secret is redacted before it is rendered, so no message body carries it (URL #1's
+// token is not pushed to URL #2's service). The key and the host stay.
+func TestEventTextIsRedactedInTheMessage(t *testing.T) {
+	red := NewRedactorWith([]string{"reg-PASS-82002"}, "ntfy://user:hunter2-token@ntfy.example.com/secret-topic")
+	nt, s, _, _ := newTest(t, 1, func(o *Options) { o.Redact = red })
+	nt.Handle(ev(engine.ActionStarted, webKey, "restart: unhealthy, see ntfy.example.com/secret-topic", map[string]string{"action": "restart"}))
+	nt.Handle(ev(engine.ActionResult, webKey, `restart failed: Post "https://ntfy.example.com/secret-topic": 401 for user hunter2-token reg-PASS-82002`,
+		map[string]string{"action": "restart", "rung": "restart", "ok": "false", engine.AttrIncident: "i"}))
+	nt.Handle(ev(engine.DriftBlocked, webKey, "x", map[string]string{"findings": "config: hunter2-token would recreate", engine.AttrIncident: "i"}))
+	flush(nt)
+	msgs := s[0].messages()
+	if len(msgs) != 2 {
+		t.Fatalf("%d messages", len(msgs))
+	}
+	for _, m := range msgs {
+		for _, secret := range []string{"hunter2-token", "secret-topic", "ntfy.example.com", "reg-PASS-82002"} {
+			if strings.Contains(m.Title+m.Body, secret) {
+				t.Errorf("%q leaks into %v", secret, m)
+			}
+		}
+		if !strings.Contains(m.Body, "***") || !strings.HasPrefix(m.Body, webKey+"\n") || !strings.HasPrefix(m.Title, "nas: ") {
+			t.Errorf("%v", m)
+		}
+	}
+	if !strings.Contains(msgs[0].Title, "restart failed") {
+		t.Errorf("the control attributes are not redacted: %v", msgs[0])
+	}
+}
+
+// The rollback commands are sent exactly or not at all: when the redactor would change one of them (a topic named like a
+// word of the command), both are withheld, the message says so, and it is an ordinary message within MaxBody. Without
+// such a fragment they are sent byte for byte.
+func TestARollbackTheRedactorWouldChangeIsWithheld(t *testing.T) {
+	a := movedAttrs(stackProject(), "ghcr.io/o/web:latest", true)
+	nt, s, _, _ := newTest(t, 1, func(o *Options) { o.Redact = NewRedactor("ntfy://ntfy.example.com/stacks") })
+	nt.Handle(ev(engine.TagMoved, webKey, "x", a))
+	flush(nt)
+	m := s[0].messages()[0]
+	if strings.Contains(m.Body, "docker image tag") || strings.Contains(m.Body, "roll back:") || !strings.Contains(m.Body, "rollback not shown") {
+		t.Fatalf("%s", m.Body)
+	}
+	if utf8.RuneCountInString(m.Body) > MaxBody {
+		t.Fatalf("%d runes", utf8.RuneCountInString(m.Body))
+	}
+	nt2, s2, _, _ := newTest(t, 1, func(o *Options) { o.Redact = NewRedactor("ntfy://ntfy.example.com/unrelated-topic") })
+	nt2.Handle(ev(engine.TagMoved, webKey, "x", a))
+	flush(nt2)
+	if b := s2[0].messages()[0].Body; !strings.HasSuffix(b, "\n"+a["rollback_tag"]+"\n"+a["rollback_up"]) {
+		t.Fatalf("%s", b)
+	}
+}
+
+// The control attributes are not redacted, so a short query value of a URL cannot change what a message says.
+func TestRedactingAnEventKeepsItsControlAttributes(t *testing.T) {
+	red := NewRedactor("generic://h.example/hook-path?template=json&ok=true&k=restart")
+	e := red.Event(ev(engine.ActionResult, webKey, "restart failed: true json", map[string]string{"action": "restart", "rung": "restart", "ok": "true", "error": "json true"}))
+	if e.Attrs["ok"] != "true" || e.Attrs["action"] != "restart" || e.Attrs["rung"] != "restart" || e.Key != webKey || e.Host != testHost {
+		t.Fatalf("%+v", e)
+	}
+	if e.Attrs["error"] != "*** ***" || e.Message != "*** failed: *** ***" {
+		t.Fatalf("%+v", e)
+	}
+}

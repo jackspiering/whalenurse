@@ -116,8 +116,10 @@ origin), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer` and 
 
 A Discord webhook, a Telegram bot token or a private ntfy topic **is** a credential. whalenurse treats
 `WHALENURSE_NOTIFY_URLS` and `WHALENURSE_HEARTBEAT_URL` as secrets: they are never logged, never in `status`, `/healthz` or an
-error (a URL is shown as `#2 discord`), and every error text passes a redactor that masks them in all their forms. Tests grep
-the logs, the status and the test output for them.
+error (a URL is shown as `#2 discord`), and every error text passes a redactor that masks them in all their forms. That
+includes the text of events (an error that Docker or compose quoted) in the log and in every notification body, so one
+URL's token is never pushed to another URL's service. A rollback command that the redactor would change is not sent at
+all: the message says it was withheld. Tests grep the logs, the bodies sent, the status and the test output for them.
 
 Your part: keep them in an env file that stays out of git (`.env` is in the repository's `.gitignore`), with mode 0600; use an
 unguessable ntfy topic; and remember that `docker inspect whalenurse` shows the environment of the container to anyone who

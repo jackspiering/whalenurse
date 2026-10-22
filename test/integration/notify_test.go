@@ -48,9 +48,12 @@ func newWebhook(t *testing.T, project string) *webhook {
 	return w
 }
 
-// url is the Shoutrrr URL: the generic service, JSON template, plain http.
+// url is the Shoutrrr URL: the generic service, JSON template, plain http. Its host is "localhost", not 127.0.0.1: the
+// parts of a notification URL are secrets to the redactor, and the test registry's references start with 127.0.0.1, so a
+// receiver on that address would mask them (and withhold the rollback) in every message and log line.
 func (w *webhook) url() string {
-	return "generic://" + strings.TrimPrefix(w.srv.URL, "http://") + "/hook?template=json&disabletls=yes"
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(w.srv.URL, "http://"))
+	return "generic://localhost:" + port + "/hook?template=json&disabletls=yes"
 }
 
 func (w *webhook) all() []hookMsg {
@@ -95,9 +98,10 @@ func deadURL(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	addr := l.Addr().String()
+	_, port, _ := net.SplitHostPort(l.Addr().String())
 	l.Close()
-	return "generic://" + addr + "/hook-dead-token-4242?template=json&disabletls=yes"
+	return "generic://localhost:" + port + "/hook-dead-token-4242?template=json&disabletls=yes" // localhost: see webhook.url
+
 }
 
 // unhealthy -> restart -> recreate -> SUSPENDED: the receiver hears the two actions and exactly one "giving up" with the
