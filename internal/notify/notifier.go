@@ -89,6 +89,9 @@ type Notifier struct {
 	// dispatcher-only state
 	sent    map[string]time.Time // dedupe identity -> when it was sent
 	reasons map[string]string    // container key -> why its running action was started
+	// foldNext: container key -> the incident of a DriftBlocked just routed. The Suspended(drift) that follows it says
+	// nothing new and is folded into it; any other Suspended(drift) is news (plan v3.13 item 19).
+	foldNext map[string]string
 
 	targets []*worker
 	wg      sync.WaitGroup
@@ -143,9 +146,10 @@ func New(o Options) *Notifier {
 	}
 	n := &Notifier{
 		o: o, clk: o.Clock, log: o.Log,
-		in:      make(chan engine.Event, o.QueueSize),
-		sent:    map[string]time.Time{},
-		reasons: map[string]string{},
+		in:       make(chan engine.Event, o.QueueSize),
+		sent:     map[string]time.Time{},
+		reasons:  map[string]string{},
+		foldNext: map[string]string{},
 	}
 	n.sendCtx, n.cancel = context.WithCancel(context.Background())
 	if o.Ledger != nil {
@@ -243,6 +247,18 @@ func (n *Notifier) route(e engine.Event) {
 		// Only remembered: the message goes out when the action ends, and says why it was started.
 		n.reasons[e.Key] = afterPrefix(e.Message, e.Attrs["action"]+": ")
 		return
+	}
+	switch {
+	case e.Type == engine.DriftBlocked:
+		n.foldNext[e.Key] = e.Attrs[engine.AttrIncident]
+	case e.Type == engine.Suspended && e.Attrs["reason"] == engine.ReasonDrift:
+		inc, fold := n.foldNext[e.Key]
+		delete(n.foldNext, e.Key)
+		if fold && inc == e.Attrs[engine.AttrIncident] {
+			return // the DriftBlocked just before it said all of this: one message, not two
+		}
+	case e.Type == engine.Unsuspended:
+		delete(n.foldNext, e.Key)
 	}
 	c := rctx{host: n.o.Host, dryRun: n.o.DryRun}
 	if e.Type == engine.ActionResult {

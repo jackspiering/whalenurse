@@ -130,10 +130,13 @@ func TestEventsThatAreNotListedAreNotNotified(t *testing.T) {
 	}
 }
 
-func TestADriftSuspensionIsOneMessage(t *testing.T) {
-	// The engine publishes DriftBlocked and then Suspended(reason drift): the first carries everything.
-	if _, _, ok := render(ev(engine.Suspended, webKey, "recreate skipped by the drift guard (x): y", map[string]string{"reason": "drift"}), rctx{}); ok {
-		t.Fatal("Suspended with reason drift duplicates DriftBlocked")
+// The Suspended(drift) right after its DriftBlocked is folded by the dispatcher (TestADriftBlockedSuspensionIsExactlyOneMessage).
+// The one render sees is a re-suspension later in the incident: a giving-up message that keeps the drift context.
+func TestADriftSuspensionAgainIsAGivingUpMessage(t *testing.T) {
+	m := renderOne(t, ev(engine.Suspended, webKey, "failed again before the incident closed (drift): unhealthy", map[string]string{"reason": "drift"}), rctx{dryRun: true})
+	if !strings.HasSuffix(m.Title, "giving up, SUSPENDED") || !m.Critical || !strings.Contains(m.Body, "cause: unhealthy again; the drift guard blocked the recreate") ||
+		!strings.Contains(m.Body, "whalenurse unsuspend stack/web") || utf8.RuneCountInString(m.Body) > MaxBody || utf8.RuneCountInString(m.Title) > MaxTitle {
+		t.Fatalf("%v", m)
 	}
 }
 

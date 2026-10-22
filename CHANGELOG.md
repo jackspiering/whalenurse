@@ -35,6 +35,9 @@ workflow refuses an undated section.
   notification URLs and the token could change ordinary words of a rollback command (a topic named `docker`, a registry on
   the receiver's host), and the page offered the masked command with a Copy button. Such a rollback is now withheld, and the
   page says so.
+- **A container suspended again after a drift block is notified.** When a drift-blocked container recovered and failed
+  again in the same incident, the second SUSPENDED was dropped as if it repeated the drift block, so the last message said
+  "unsuspended". It is now sent as a giving-up message, and the unsuspend after it is news again.
 
 ### Documentation
 

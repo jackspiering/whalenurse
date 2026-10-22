@@ -636,3 +636,33 @@ func TestRedactingAnEventKeepsItsControlAttributes(t *testing.T) {
 		t.Fatalf("%+v", e)
 	}
 }
+
+// The drift fold applies only to the Suspended right after its DriftBlocked (plan v3.13 item 19): a re-suspension later in
+// the same incident, after an Unsuspended, is a giving-up message, and the Unsuspended after it is news again.
+func TestASuspensionAgainAfterADriftBlockIsNews(t *testing.T) {
+	nt, s, _, _ := newTest(t, 1, nil)
+	nt.Handle(ev(engine.DriftBlocked, webKey, "recreate skipped by the drift guard: the tag moved", map[string]string{"findings": "the tag moved", engine.AttrIncident: "i"}))
+	nt.Handle(ev(engine.Suspended, webKey, "recreate skipped by the drift guard (the tag moved): unhealthy", map[string]string{"reason": "drift", engine.AttrIncident: "i"}))
+	nt.Handle(ev(engine.Unsuspended, webKey, "container returned to healthy", map[string]string{"reason": "healthy", engine.AttrIncident: "i"}))
+	nt.Handle(ev(engine.Suspended, webKey, "failed again before the incident closed (drift): unhealthy", map[string]string{"reason": "drift", engine.AttrIncident: "i"}))
+	nt.Handle(ev(engine.Unsuspended, webKey, "container returned to healthy", map[string]string{"reason": "healthy", engine.AttrIncident: "i"}))
+	flush(nt)
+	got := s[0].messages()
+	var titles []string
+	for _, m := range got {
+		titles = append(titles, m.Title)
+	}
+	want := []string{"drift guard, SUSPENDED", "unsuspended", "SUSPENDED", "unsuspended"}
+	if len(got) != len(want) {
+		t.Fatalf("%d messages, want %d: %q", len(got), len(want), titles)
+	}
+	for i, w := range want {
+		if !strings.HasSuffix(got[i].Title, w) {
+			t.Errorf("message %d: %q, want ...%q", i, got[i].Title, w)
+		}
+	}
+	again := got[2]
+	if !again.Critical || !strings.Contains(again.Body, "drift guard") || !strings.Contains(again.Body, "whalenurse unsuspend stack/web") || utf8.RuneCountInString(again.Body) > MaxBody {
+		t.Errorf("the re-suspension is a giving-up message that keeps the drift context: %v", again)
+	}
+}

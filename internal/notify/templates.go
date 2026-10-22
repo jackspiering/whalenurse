@@ -127,8 +127,10 @@ func render(e engine.Event, c rctx) (m Message, dedupe string, ok bool) {
 	case engine.Suspended:
 		switch attr("reason") {
 		case engine.ReasonDrift:
-			// DriftBlocked, published just before it, says all of this. One message, not two.
-			return Message{}, "", false
+			// Right after its DriftBlocked it is folded into that message (the dispatcher does it). This is the other one:
+			// suspended again later in the same incident, after it had recovered.
+			headline = "giving up, SUSPENDED"
+			detail = append(detail, "cause: "+causeOf(e.Message)+" again; the drift guard blocked the recreate earlier in this incident")
 		case engine.ReasonFlapping:
 			headline = "flapping, SUSPENDED"
 			detail = append(detail, e.Message)
