@@ -709,3 +709,42 @@ func TestSuspendedAndUnsuspendedAlternateOnlyOncePerIncident(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 }
+
+// A message that no URL could take is not recorded as sent: with no URL, or only invalid ones, nothing is written to the
+// ledger, so the warning goes out once a working URL is added and whalenurse restarts. A URL that takes the message and
+// then fails to deliver it still records it (the dedupe is written as messages are accepted).
+func TestNothingIsRecordedAsSentWhenNoURLCanTakeIt(t *testing.T) {
+	events := []engine.Event{
+		ev(engine.RungsDisabled, "", "rungs 2 and 3 are disabled: Engine 27.0 is below 28.1", nil),
+		ev(engine.NotifyOnly, webKey, "left down by policy", map[string]string{"class": "exited-host-stopped"}),
+	}
+	for name, targets := range map[string][]Target{"no URL": nil, "an invalid URL": {{Label: "#1 bogus", Err: "unknown service"}}} {
+		t.Run(name, func(t *testing.T) {
+			l := &memLedger{}
+			nt, _, _, _ := newTest(t, 0, func(o *Options) { o.Ledger = l; o.Targets = targets })
+			for _, e := range events {
+				nt.Handle(e)
+			}
+			flush(nt)
+			if len(l.rows) != 0 {
+				t.Fatalf("recorded %d rows with no usable URL: %v", len(l.rows), l.rows)
+			}
+			nt2, s, _, _ := newTest(t, 1, func(o *Options) { o.Ledger = l }) // a URL is added, whalenurse restarts
+			for _, e := range events {
+				nt2.Handle(e)
+			}
+			flush(nt2)
+			if got := len(s[0].messages()); got != len(events) {
+				t.Fatalf("%d of %d messages after the URL was added", got, len(events))
+			}
+		})
+	}
+	l := &memLedger{}
+	nt, s, _, _ := newTest(t, 1, func(o *Options) { o.Ledger = l })
+	s[0].err = errors.New("service down")
+	nt.Handle(events[0])
+	flush(nt)
+	if len(l.rows) != 1 {
+		t.Fatalf("a usable URL that failed to deliver still records it: %v", l.rows)
+	}
+}

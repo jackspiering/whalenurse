@@ -42,6 +42,9 @@ workflow refuses an undated section.
 - **A container suspended again after a drift block is notified.** When a drift-blocked container recovered and failed
   again in the same incident, the second SUSPENDED was dropped as if it repeated the drift block, so the last message said
   "unsuspended". It is now sent as a giving-up message, and the unsuspend after it is news again.
+- **A message no URL could take is no longer recorded as sent.** With no notification URL, or only invalid ones, the
+  dedupe still remembered each message for 24 hours, so after a working URL was added and whalenurse restarted, the
+  version-gate warning and the "left down" advisories for problems that already existed were not sent.
 
 ### Documentation
 

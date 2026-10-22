@@ -94,6 +94,9 @@ type Notifier struct {
 	foldNext map[string]string
 
 	targets []*worker
+	// usable: some target has a Sender. Without one no message is accepted, so none is recorded as sent: the warning
+	// still goes out once a working URL is configured.
+	usable  bool
 	wg      sync.WaitGroup
 	cancel  context.CancelFunc // aborts deliveries in flight when Shutdown runs out of time
 	sendCtx context.Context
@@ -163,6 +166,7 @@ func New(o Options) *Notifier {
 		w := &worker{t: t, q: make(chan Message, o.QueueSize), nt: n, throttled: map[string]time.Time{}}
 		n.targets = append(n.targets, w)
 		if t.Sender != nil {
+			n.usable = true
 			n.wg.Add(1)
 			go w.run()
 		}
@@ -269,7 +273,7 @@ func (n *Notifier) route(e engine.Event) {
 	if !ok {
 		return
 	}
-	if id != "" && n.seen(id, e) {
+	if id != "" && n.usable && n.seen(id, e) {
 		return
 	}
 	// Suspended and unsuspended alternate within an incident; each is news again after the other, or the last word the
@@ -324,6 +328,9 @@ func (n *Notifier) rearmed(key, incident string) bool {
 }
 
 func (n *Notifier) markRearmed(key, incident string) {
+	if !n.usable {
+		return
+	}
 	now := n.clk.Now()
 	n.sent[rearmID(key, incident)] = now
 	if n.o.Ledger != nil {
