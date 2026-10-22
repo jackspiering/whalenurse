@@ -273,12 +273,18 @@ func (n *Notifier) route(e engine.Event) {
 		return
 	}
 	// Suspended and unsuspended alternate within an incident; each is news again after the other, or the last word the
-	// user heard would be wrong.
+	// user heard would be wrong. Only once per incident (plan v3.13 item 18): the first Unsuspended after a Suspended and
+	// the first Suspended after that are sent; a healthcheck that keeps flipping does not use up the hourly budget.
 	switch e.Type {
-	case engine.Unsuspended:
-		n.forget(engine.Suspended, e.Key)
-	case engine.Suspended:
-		n.forget(engine.Unsuspended, e.Key)
+	case engine.Unsuspended, engine.Suspended:
+		if inc := e.Attrs[engine.AttrIncident]; !n.rearmed(e.Key, inc) {
+			if e.Type == engine.Unsuspended {
+				n.markRearmed(e.Key, inc)
+				n.forget(engine.Suspended, e.Key)
+			} else {
+				n.forget(engine.Unsuspended, e.Key)
+			}
+		}
 	}
 	for _, w := range n.targets {
 		w.offer(m)
@@ -304,6 +310,26 @@ func (n *Notifier) redacted(e engine.Event) engine.Event {
 
 // attrRollbackWithheld marks, inside the notifier only, an event whose rollback commands were withheld.
 const attrRollbackWithheld = "rollback_withheld"
+
+// rearmType is the ledger type of the "made each other news again" mark of an incident. It is its own type, so forgetting
+// the Suspended or Unsuspended rows of a key never drops it.
+const rearmType = "rearmed"
+
+func rearmID(key, incident string) string { return rearmType + "|" + key + "|" + incident }
+
+// rearmed reports whether an Unsuspended already made Suspended news again in this incident of the key.
+func (n *Notifier) rearmed(key, incident string) bool {
+	at, ok := n.sent[rearmID(key, incident)]
+	return ok && n.clk.Now().Sub(at) < n.o.DedupeFor
+}
+
+func (n *Notifier) markRearmed(key, incident string) {
+	now := n.clk.Now()
+	n.sent[rearmID(key, incident)] = now
+	if n.o.Ledger != nil {
+		n.o.Ledger.SaveNotified(rearmID(key, incident), rearmType, key, now)
+	}
+}
 
 // forget drops the remembered messages of one type for one key.
 func (n *Notifier) forget(typ engine.EventType, key string) {

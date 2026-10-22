@@ -459,14 +459,14 @@ func TestUnsuspendedIsRoutineAndSuspendingAgainInTheSameIncidentIsNewsAgain(t *t
 	nt.Handle(susp()) // a repeat: said once
 	nt.Handle(back)
 	nt.Handle(susp()) // it failed again before the incident closed: news again, or the last word would be "unsuspended"
-	nt.Handle(back)   // and again the same reason, same incident: this is the second time it came back
+	nt.Handle(back)   // the second time it came back in this incident: alternating is news once per incident (v3.13 item 18)
 	flush(nt)
 	var got []string
 	for _, m := range s[0].messages() {
 		got = append(got, m.Title)
 	}
-	want := []string{"giving up", "unsuspended", "giving up", "unsuspended"}
-	if len(got) != 4 {
+	want := []string{"giving up", "unsuspended", "giving up"}
+	if len(got) != 3 {
 		t.Fatalf("%v", got)
 	}
 	for i, w := range want {
@@ -638,7 +638,8 @@ func TestRedactingAnEventKeepsItsControlAttributes(t *testing.T) {
 }
 
 // The drift fold applies only to the Suspended right after its DriftBlocked (plan v3.13 item 19): a re-suspension later in
-// the same incident, after an Unsuspended, is a giving-up message, and the Unsuspended after it is news again.
+// the same incident, after an Unsuspended, is a giving-up message. The Unsuspended after that is not news again: the two
+// make each other news only once per incident (item 18).
 func TestASuspensionAgainAfterADriftBlockIsNews(t *testing.T) {
 	nt, s, _, _ := newTest(t, 1, nil)
 	nt.Handle(ev(engine.DriftBlocked, webKey, "recreate skipped by the drift guard: the tag moved", map[string]string{"findings": "the tag moved", engine.AttrIncident: "i"}))
@@ -652,7 +653,7 @@ func TestASuspensionAgainAfterADriftBlockIsNews(t *testing.T) {
 	for _, m := range got {
 		titles = append(titles, m.Title)
 	}
-	want := []string{"drift guard, SUSPENDED", "unsuspended", "SUSPENDED", "unsuspended"}
+	want := []string{"drift guard, SUSPENDED", "unsuspended", "SUSPENDED"}
 	if len(got) != len(want) {
 		t.Fatalf("%d messages, want %d: %q", len(got), len(want), titles)
 	}
@@ -664,5 +665,47 @@ func TestASuspensionAgainAfterADriftBlockIsNews(t *testing.T) {
 	again := got[2]
 	if !again.Critical || !strings.Contains(again.Body, "drift guard") || !strings.Contains(again.Body, "whalenurse unsuspend stack/web") || utf8.RuneCountInString(again.Body) > MaxBody {
 		t.Errorf("the re-suspension is a giving-up message that keeps the drift context: %v", again)
+	}
+}
+
+// Suspended and Unsuspended make each other news again only once per incident (plan v3.13 item 18): the first Unsuspended
+// after a Suspended and the first Suspended after that are sent; a healthcheck that keeps flipping sends nothing more in
+// that incident, also across a restart of whalenurse. A new incident is news again.
+func TestSuspendedAndUnsuspendedAlternateOnlyOncePerIncident(t *testing.T) {
+	l := &memLedger{}
+	susp := func(inc string) engine.Event {
+		return ev(engine.Suspended, webKey, "failed again before the incident closed (ladder): unhealthy", map[string]string{"reason": "ladder", engine.AttrIncident: inc})
+	}
+	back := func(inc string) engine.Event {
+		return ev(engine.Unsuspended, webKey, "container returned to healthy", map[string]string{"reason": "healthy", engine.AttrIncident: inc})
+	}
+	nt, s, _, _ := newTest(t, 1, func(o *Options) { o.Ledger = l })
+	for _, e := range []engine.Event{susp("i"), back("i"), susp("i"), back("i"), susp("i")} {
+		nt.Handle(e)
+	}
+	flush(nt)
+	if got := s[0].titles(); len(got) != 3 || !strings.Contains(got[0], "giving up") || !strings.Contains(got[1], "unsuspended") || !strings.Contains(got[2], "giving up") {
+		t.Fatalf("want giving up, unsuspended, giving up: %q", got)
+	}
+	// A restart of whalenurse in the same incident: still nothing more.
+	nt2, s2, _, _ := newTest(t, 1, func(o *Options) { o.Ledger = l })
+	nt2.Handle(back("i"))
+	nt2.Handle(susp("i"))
+	// A new incident is news again.
+	nt2.Handle(susp("j"))
+	nt2.Handle(back("j"))
+	nt2.Handle(susp("j"))
+	flush(nt2)
+	if got := s2[0].titles(); len(got) != 3 {
+		t.Fatalf("after a restart nothing more in incident i, then a new incident's three: %q", got)
+	}
+	// A deliberate unsuspend is said every time.
+	nt3, s3, _, _ := newTest(t, 1, func(o *Options) { o.Ledger = l })
+	cmd := ev(engine.Unsuspended, webKey, "unsuspended by command", map[string]string{"reason": "command", engine.AttrIncident: "i"})
+	nt3.Handle(cmd)
+	nt3.Handle(cmd)
+	flush(nt3)
+	if got := s3[0].titles(); len(got) != 2 {
+		t.Fatalf("%q", got)
 	}
 }

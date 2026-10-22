@@ -19,6 +19,10 @@ workflow refuses an undated section.
 
 ### Changed
 
+- **A container whose healthcheck keeps flipping no longer sends a stream of messages.** SUSPENDED and "unsuspended" were
+  news again after each other every time within an incident; now that happens once per incident (suspended, unsuspended,
+  suspended again), and further changes are recorded and shown on the dashboard but not sent until the next incident. An
+  unsuspend you run is always sent.
 - **The rollback `up` line has `--no-build`**, like every other `up` whalenurse runs. If the tag line failed or was skipped,
   the `up` now stops with an error instead of building an image that is not the old one. Rollbacks already shown keep
   their form.
