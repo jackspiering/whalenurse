@@ -12,7 +12,9 @@
 
 Container: `docker compose pull whalenurse && docker compose up -d whalenurse` (with the new tag in the file). Systemd: replace
 `/usr/local/bin/whalenurse`, `systemctl restart whalenurse`. whalenurse does not heal itself and is not touched by its own
-recreate rung.
+recreate rung. If it is healing something when it is stopped, it lets that action finish first (up to 30 s; an action cut
+short is not counted and runs again after the restart), so give it the `stop_grace_period: 60s` of the examples, or the
+unit's `KillMode=mixed` and `TimeoutStopSec=60s`; with Docker's default of 10 s a recreate in flight can be killed halfway.
 
 ## Backing up and restoring the store
 

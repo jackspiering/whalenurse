@@ -23,6 +23,12 @@ workflow refuses an undated section.
 
 ### Changed
 
+- **A stop of whalenurse lets a heal in flight finish, and no longer spends its rung.** A restart, recreate or the `up`
+  after a pull in flight when whalenurse is stopped (an upgrade, `systemctl restart`, a reboot) may finish for up to 30 s;
+  compose is then stopped with SIGTERM, not SIGKILL. An action cut short is recorded as interrupted (`ActionInterrupted`),
+  not failed, and runs again after the restart instead of the container being SUSPENDED. **Action:** give the container
+  `stop_grace_period: 60s` (the examples do), or the systemd unit `KillMode=mixed` and `TimeoutStopSec=60s`, then
+  `systemctl daemon-reload`.
 - A unit test now checks that the binary gives a dry run only the actors that change nothing, for the restart rung and
   for the compose rungs; before, only the restart one was checked, by an integration test.
 

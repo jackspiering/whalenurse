@@ -27,9 +27,10 @@ type Fake struct {
 	errs       chan error
 
 	// Hooks and switches, set before use.
-	FailMutations bool                           // every Restart/Start returns an error and is still recorded
-	OnMutate      func(f *Fake, verb, id string) // runs inside the call, before it returns
-	AfterInspect  func(f *Fake, ref string)      // runs after an Inspect call has read its result
+	FailMutations bool                                   // every Restart/Start returns an error and is still recorded
+	OnMutate      func(f *Fake, verb, id string)         // runs inside the call, before it returns
+	OnCtx         func(verb string, ctx context.Context) // sees the context of every Restart/Start, before OnMutate
+	AfterInspect  func(f *Fake, ref string)              // runs after an Inspect call has read its result
 	ListErr       error
 	ServerErr     error // ServerVersion fails with this
 
@@ -219,7 +220,10 @@ func (f *Fake) Events(ctx context.Context, since time.Time) Stream {
 	return Stream{Events: out, Err: errs}
 }
 
-func (f *Fake) mutate(verb, id string) error {
+func (f *Fake) mutate(ctx context.Context, verb, id string) error {
+	if f.OnCtx != nil {
+		f.OnCtx(verb, ctx)
+	}
 	f.mu.Lock()
 	name := ""
 	if c, ok := f.containers[id]; ok {
@@ -240,8 +244,8 @@ func (f *Fake) mutate(verb, id string) error {
 	return nil
 }
 
-func (f *Fake) Restart(_ context.Context, id string) error { return f.mutate("restart", id) }
-func (f *Fake) Start(_ context.Context, id string) error   { return f.mutate("start", id) }
+func (f *Fake) Restart(ctx context.Context, id string) error { return f.mutate(ctx, "restart", id) }
+func (f *Fake) Start(ctx context.Context, id string) error   { return f.mutate(ctx, "start", id) }
 
 var _ Client = (*Fake)(nil)
 var _ Client = (*Moby)(nil)

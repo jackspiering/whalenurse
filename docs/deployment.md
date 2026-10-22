@@ -143,7 +143,10 @@ Differences from the container:
   `sudo -u whalenurse env WHALENURSE_CONTROL_SOCKET=/run/whalenurse/whalenurse.sock whalenurse status`.
 - systemd stops whalenurse in the host's shutdown like everything else; it writes its `last_seen` heartbeat on a clean stop and
   every 5 s, which is how it recognises the containers that a shutdown stopped (and does not mistake them for crashes).
-  Keep `TimeoutStopSec` at its 30 s.
+  A stop lets an action in flight finish (up to 30 s, then compose gets SIGTERM and, 10 s later, SIGKILL), so keep the
+  unit's `KillMode=mixed` (systemd's default would SIGTERM compose itself) and `TimeoutStopSec=60s`. In a container the
+  examples' `stop_grace_period: 60s` does the same; keep it well below 85 s, because a stop of the Docker daemon waits for
+  the longest `stop_grace_period` plus 5 s, and systemd stops `docker.service` after 90 s by default.
 - If a hardened setting gets in the way (an `EPERM` in the journal), loosen that one line and tell us in an issue: the filter
   fails with `EPERM`, not with a kill, so it shows.
 

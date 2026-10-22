@@ -307,12 +307,12 @@ func (d *Daemon) executeRecreate(ctx context.Context, t engine.Target, c docker.
 	if stale {
 		allow = d.dependentMayTakeMove(ctx, c)
 	}
-	if !d.guardVerdict(ctx, t, c, dec, p, allow) {
+	if !d.guardVerdict(ctx, t, c, dec, p, allow) || ctx.Err() != nil {
 		return
 	}
 
 	d.eng.Begin(t, plan, dec)
-	actx, cancel := context.WithTimeout(ctx, composeTimeout)
+	actx, cancel := d.actionContext(ctx, composeTimeout)
 	defer cancel()
 	var runErr error
 	d.markActing()
@@ -323,9 +323,13 @@ func (d *Daemon) executeRecreate(ctx context.Context, t engine.Target, c docker.
 		}
 	} else {
 		runErr = d.o.ComposeActor.Recreate(actx, p)
-		if allow && !d.cfg.DryRun {
+		if allow && !d.cfg.DryRun && !interrupted(ctx, runErr) {
 			d.noteUpgrade(actx, t, c, p, runErr)
 		}
+	}
+	if interrupted(ctx, runErr) {
+		d.eng.Interrupt(t, plan, runErr)
+		return
 	}
 	recheck := d.eng.End(t, plan, engine.Result{Err: runErr, DryRun: d.cfg.DryRun}, cfg)
 	d.afterAction(t, c, recheck)

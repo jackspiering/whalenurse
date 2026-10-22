@@ -111,6 +111,9 @@ func (d *Daemon) guardVerdict(ctx context.Context, t engine.Target, c docker.Con
 	if len(fs) == 0 {
 		return true
 	}
+	if ctx.Err() != nil {
+		return false // whalenurse is stopping: a check cut short is not a finding, and nothing is blocked or recorded
+	}
 	var findings []string
 	var extra map[string]string
 	verifiedOnly := true
@@ -172,6 +175,9 @@ func (d *Daemon) executePull(ctx context.Context, t engine.Target, c docker.Cont
 	}
 	// The pull rung respects a service's pull_policy never and build (plan v3.8): it does not apply, the ladder is spent.
 	if why := d.pullPolicyRefusal(ctx, p); why != "" {
+		if ctx.Err() != nil {
+			return // the read failed because whalenurse is stopping, not because the policy is unreadable
+		}
 		d.eng.RungNotApplicable(t, config.RungPull, why, cfg)
 		d.schedule(t.Key, d.clk.Now().Add(d.cfg.Grace))
 		return
@@ -194,11 +200,23 @@ func (d *Daemon) executePull(ctx context.Context, t engine.Target, c docker.Cont
 	// rollback, so the one message puts them all back.
 	sidecars := d.sidecarsSharing(ctx, c, ref, old, oldPlain)
 
+	if ctx.Err() != nil {
+		return
+	}
 	d.eng.Begin(t, plan, dec)
+	// The pull itself stops with whalenurse (killing a pull changes no container) and is then not counted.
 	pctx, cancel := context.WithTimeout(ctx, pullTimeout)
 	defer cancel()
 	d.markActing()
 	pullErr := d.o.ComposeActor.Pull(pctx, p)
+	if interrupted(ctx, pullErr) {
+		d.eng.Interrupt(t, plan, pullErr)
+		return
+	}
+	// Whatever follows a pull that ran is finished even when whalenurse is stopping: a pull that moved the image must be
+	// followed by its up, or the next run's pull would find "no newer image" and SUSPEND a container never moved onto it.
+	actx, acancel := d.actionContext(ctx, composeTimeout)
+	defer acancel()
 	if d.cfg.DryRun {
 		recheck := d.eng.End(t, plan, engine.Result{DryRun: true}, cfg)
 		d.afterAction(t, c, recheck)
@@ -209,7 +227,7 @@ func (d *Daemon) executePull(ctx context.Context, t engine.Target, c docker.Cont
 		d.afterAction(t, c, recheck)
 		return
 	}
-	now, nowErr := d.rd.ImageID(ctx, ref, arch)
+	now, nowErr := d.rd.ImageID(actx, ref, arch)
 	if nowErr != nil {
 		recheck := d.eng.End(t, plan, engine.Result{Err: fmt.Errorf("the pull ran, but the image %s cannot be read afterwards: %w", ref, nowErr)}, cfg)
 		d.afterAction(t, c, recheck)
@@ -224,12 +242,10 @@ func (d *Daemon) executePull(ctx context.Context, t engine.Target, c docker.Cont
 	}
 
 	// The image changed. Record it first: the tag moved for every stack that shares it, whether or not the up works.
-	nowPlain, _ := d.rd.ImageID(ctx, ref, "")
+	nowPlain, _ := d.rd.ImageID(actx, ref, "")
 	at := d.clk.Now()
 	d.recordMove(tagMove{Ref: normalizeRef(ref), Key: t.Key, At: at, Old: old, New: now, OldPlain: oldPlain, NewPlain: nowPlain})
 
-	actx, acancel := context.WithTimeout(ctx, composeTimeout)
-	defer acancel()
 	d.markActing()
 	upErr := d.o.ComposeActor.Up(actx, p)
 	if upErr == nil {

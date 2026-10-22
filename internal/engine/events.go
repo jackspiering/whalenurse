@@ -14,9 +14,10 @@ const (
 	IncidentClosed      EventType = "IncidentClosed" // closed without recovery: gone, stopped by hand, recreated
 	ActionStarted       EventType = "ActionStarted"
 	ActionResult        EventType = "ActionResult"
-	RungUnavailable     EventType = "RungUnavailable" // a configured rung cannot run: disabled by the version gate, no usable compose inputs, or not built yet (pull)
-	Suspended           EventType = "Suspended"       // the ladder is spent, or the key is flapping; nothing more is tried
-	Recovered           EventType = "Recovered"       // recovered for RECOVERY_PERIOD: the incident closes
+	ActionInterrupted   EventType = "ActionInterrupted" // whalenurse was stopped while the action ran and it was cut short: the rung is not spent
+	RungUnavailable     EventType = "RungUnavailable"   // a configured rung cannot run: disabled by the version gate, no usable compose inputs, or not built yet (pull)
+	Suspended           EventType = "Suspended"         // the ladder is spent, or the key is flapping; nothing more is tried
+	Recovered           EventType = "Recovered"         // recovered for RECOVERY_PERIOD: the incident closes
 	Unsuspended         EventType = "Unsuspended"
 	Paused              EventType = "Paused"
 	Resumed             EventType = "Resumed" // by the resume command, or because the pause expired

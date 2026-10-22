@@ -264,7 +264,7 @@ var eventGroups = []struct {
 	debug bool
 }{
 	{"All", nil, false},
-	{"Actions", []string{"ActionResult", "ActionStarted"}, false},
+	{"Actions", []string{"ActionResult", "ActionStarted", "ActionInterrupted"}, false},
 	{"Giving up", []string{"Suspended", "Unsuspended"}, false},
 	{"Recoveries", []string{"Recovered", "IncidentClosed"}, false},
 	{"Drift", []string{"DriftBlocked", "DriftWarned"}, false},

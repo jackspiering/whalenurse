@@ -844,6 +844,27 @@ func (e *Engine) End(t Target, plan Plan, res Result, cfg config.Container) (rec
 	return inc.cooldownUntil
 }
 
+// Interrupt closes the window of an action that whalenurse's own stop cut short (the action outlived the shutdown grace,
+// or the pull, which a stop does not wait for). It is not a result: the rung is not consumed and no failure is reported,
+// so the next run plans the same rung again. The rate-limit slot Begin took stays spent: the action may have changed
+// something before it was stopped.
+func (e *Engine) Interrupt(t Target, plan Plan, err error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	now := e.clk.Now()
+	st := e.state(t.Key)
+	for i := range st.windows {
+		if st.windows[i].end.IsZero() {
+			st.windows[i].end = now.Add(e.p.InflightTail)
+		}
+	}
+	msg := string(plan.Act) + " interrupted: whalenurse is stopping; the rung runs again after the restart"
+	if err != nil {
+		msg += " (" + err.Error() + ")"
+	}
+	e.emit(t, ActionInterrupted, msg, map[string]string{"action": string(plan.Act), "rung": plan.Rung})
+}
+
 // Refuse cancels a planned action whose pre-action check failed. The rung is
 // not consumed and no rate-limit slot is spent (Begin was never called).
 func (e *Engine) Refuse(t Target, d rules.Decision, why string) {

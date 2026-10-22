@@ -28,6 +28,14 @@ import (
 // actionTimeout bounds one restart or start call.
 const actionTimeout = 2 * time.Minute
 
+// shutdownGrace is how long an action in flight may still run once whalenurse is told to stop (SIGTERM, SIGINT). The
+// loop is synchronous, so Run returns right after the action. It must stay below the stop timeout the deployment gives
+// whalenurse (stop_grace_period in the compose examples, TimeoutStopSec in the systemd unit, both 60 s), or the action
+// is killed with the process; a compose command that is stopped gets compose.StopDelay more before it is killed. It is
+// kept short because dockerd's own shutdown waits for the longest stop_grace_period plus 5 s, inside docker.service's
+// stop timeout (systemd's default, 90 s).
+const shutdownGrace = 30 * time.Second
+
 // MetaBootID is the store key the kernel boot id is kept under.
 const MetaBootID = "boot_id"
 
@@ -121,6 +129,7 @@ type Daemon struct {
 	compState   atomic.Pointer[composeState] // the startup version gate, readable from the control socket
 	depGate     map[string]depGate           // one dependent at a time per parent, keyed by the raw container: reference
 	beatEvery   time.Duration                // how often last_seen is written during an action (heartbeatEvery; tests shorten it)
+	stopGrace   time.Duration                // how long an action in flight may run on after the stop (shutdownGrace)
 	view        *view                        // what the API reads
 	parents     map[string][]string          // per key: the services a dependent depends on, learned (also kept in the store's meta; parents.go)
 	parentsGone map[string]time.Time         // keys that were not in the last list, and since when
@@ -149,6 +158,7 @@ func New(o Options) *Daemon {
 			Persist: o.Persist,
 		}, o.Clock, o.Bus),
 		beatEvery: heartbeatEvery,
+		stopGrace: shutdownGrace,
 		pend:      map[string]pending{},
 		warned:    map[string]bool{},
 		parents:   map[string][]string{}, parentsGone: map[string]time.Time{},
@@ -730,6 +740,9 @@ func (d *Daemon) adjust(c docker.Container, cfg config.Container, dec rules.Deci
 // between the decision and the action, and an API restart of a dependent whose parent ID is gone turns a running
 // dependent into an exited one (E1).
 func (d *Daemon) execute(ctx context.Context, t engine.Target, c docker.Container, dec rules.Decision, plan engine.Plan, cfg config.Container) {
+	if ctx.Err() != nil {
+		return // whalenurse is stopping: nothing new is started; the next run looks at the key again
+	}
 	d.markActing()
 	defer d.acting.Store(0)
 	defer d.keepAlive()()
@@ -750,8 +763,11 @@ func (d *Daemon) execute(ctx context.Context, t engine.Target, c docker.Containe
 		return
 	}
 
+	if ctx.Err() != nil {
+		return
+	}
 	d.eng.Begin(t, plan, dec)
-	actx, cancel := context.WithTimeout(ctx, actionTimeout)
+	actx, cancel := d.actionContext(ctx, actionTimeout)
 	defer cancel()
 	var err error
 	switch plan.Act {
@@ -760,9 +776,33 @@ func (d *Daemon) execute(ctx context.Context, t engine.Target, c docker.Containe
 	case rules.ActionStart:
 		err = d.o.Actor.Start(actx, c.ID)
 	}
+	if interrupted(ctx, err) {
+		d.eng.Interrupt(t, plan, err)
+		return
+	}
 	recheck := d.eng.End(t, plan, engine.Result{Err: err, DryRun: d.cfg.DryRun}, cfg)
 	d.afterAction(t, c, recheck)
 }
+
+// actionContext is the context of a mutating action: ctx's values and the timeout, but not ctx's cancellation, so a stop
+// of whalenurse does not kill a recreate between its create and its start. Once ctx ends, the action gets stopGrace
+// more; then it is cancelled, and interrupted says so.
+func (d *Daemon) actionContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	stop := context.AfterFunc(ctx, func() {
+		if actx.Err() != nil {
+			return
+		}
+		d.log.Warn("whalenurse is stopping: letting the action in flight finish", "grace", d.stopGrace.String())
+		t := time.AfterFunc(d.stopGrace, cancel)
+		context.AfterFunc(actx, func() { t.Stop() })
+	})
+	return actx, func() { stop(); cancel() }
+}
+
+// interrupted reports whether an action failed because whalenurse is stopping (ctx is the loop's context), not on its
+// own: such an action is not a result and does not spend its rung (engine.Interrupt).
+func interrupted(ctx context.Context, err error) bool { return err != nil && ctx.Err() != nil }
 
 func (d *Daemon) refuse(t engine.Target, dec rules.Decision, why string) {
 	d.eng.Refuse(t, dec, why)

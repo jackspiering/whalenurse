@@ -26,8 +26,11 @@ SupplementaryGroups=docker
 ExecStart=/usr/local/bin/whalenurse run
 Restart=on-failure
 RestartSec=5s
-# whalenurse is stopped by the daemon's own shutdown too; give it time to write its heartbeat.
-TimeoutStopSec=30s
+# A stop lets an action in flight (a compose recreate) finish for up to 30 s, then stops compose with SIGTERM and kills
+# it 10 s later; it also writes the heartbeat. mixed sends the SIGTERM to whalenurse only, so systemd does not stop the
+# compose child halfway itself (it still SIGKILLs what is left at the timeout).
+KillMode=mixed
+TimeoutStopSec=60s
 
 # State and the control socket, created and owned by systemd.
 StateDirectory=whalenurse

@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
+	"time"
 )
 
 // Command is one invocation of the compose binary.
@@ -46,8 +48,17 @@ type ExecRunner struct {
 	ConfigDir string
 }
 
+// StopDelay is how long a cancelled command has between SIGTERM and SIGKILL (and how long Run then waits for its output
+// to close). A compose up that is stopped mid-recreate with SIGTERM can still finish or undo a step; SIGKILL cannot.
+var StopDelay = 10 * time.Second
+
 func (r ExecRunner) Run(ctx context.Context, c Command) (Result, error) {
 	cmd := exec.CommandContext(ctx, c.Bin, c.Args...)
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = StopDelay
+	// Its own process group: a Ctrl-C in the terminal reaches whalenurse, which lets the command finish, and not the
+	// command itself.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Dir = c.Dir
 	dir := r.ConfigDir
 	if c.ConfigDir != "" {

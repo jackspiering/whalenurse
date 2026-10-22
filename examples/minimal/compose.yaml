@@ -16,6 +16,7 @@ services:
   whalenurse:
     image: ghcr.io/jackspiering/whalenurse:latest
     restart: unless-stopped
+    stop_grace_period: 60s # a stop lets a recreate in flight finish (up to 30 s) instead of killing it halfway
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
