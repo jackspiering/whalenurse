@@ -535,3 +535,40 @@ func TestAThrottledMessageDoesNotSpendTheURLsHourlyBudget(t *testing.T) {
 		t.Fatalf("%v", s[0].titles())
 	}
 }
+
+// The held-back note goes before the rollback, never over it: the commands of an "upgraded during heal" message stay whole
+// and last even when the rate limit held messages back before it (plan v3.8 item 6).
+func TestHeldBackNoteNeverCutsTheRollbackCommands(t *testing.T) {
+	nt, s, _, _ := newTest(t, 1, func(o *Options) { o.RateLimit = 2 }) // the routine half is 1 an hour
+	nt.Handle(ev(engine.Recovered, "nas/stack/a/1", "healthy", nil))   // sent
+	nt.Handle(ev(engine.Recovered, "nas/stack/b/1", "healthy", nil))   // held back
+	settle(t, "the hold-back", func() bool { return nt.Status().Targets[0].RateLimited == 1 })
+	a := movedAttrs(stackProject(), "ghcr.io/o/web:latest", true)
+	nt.Handle(ev(engine.TagMoved, webKey, "x", a)) // critical: takes the second slot and carries the note
+	flush(nt)
+	msgs := s[0].messages()
+	if len(msgs) != 2 {
+		t.Fatalf("%d messages", len(msgs))
+	}
+	got := msgs[1].Body
+	if !strings.HasSuffix(got, "\n"+a["rollback_tag"]+"\n"+a["rollback_up"]) {
+		t.Errorf("the rollback commands must be the last two lines, whole:\n%s", got)
+	}
+	if !strings.Contains(got, "(1 earlier messages were held back by the rate limit)") || !strings.HasPrefix(got, webKey+"\n") {
+		t.Errorf("the note or the key line is missing:\n%s", got)
+	}
+	if utf8.RuneCountInString(got) > MaxBodyPinned {
+		t.Errorf("%d runes", utf8.RuneCountInString(got))
+	}
+}
+
+// With the longest pinned message the note still fits within MaxBodyPinned, and neither the commands nor the key line
+// give way to it.
+func TestHeldBackNoteOnTheWorstCaseUpgradeMessage(t *testing.T) {
+	m := renderOne(t, worstCaseUpgrade(t), rctx{dryRun: true})
+	note := "(999 earlier messages were held back by the rate limit)"
+	got := withPinnedNote(m, note)
+	if utf8.RuneCountInString(got) > MaxBodyPinned || !strings.HasSuffix(got, m.pinned) || !strings.HasPrefix(got, "[dry-run] nas/") {
+		t.Fatalf("%d runes:\n%s", utf8.RuneCountInString(got), got)
+	}
+}

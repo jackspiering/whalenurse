@@ -341,7 +341,7 @@ func (w *worker) offer(m Message) {
 		w.throttled[m.Class] = now
 	}
 	if w.suppressed > 0 {
-		m.Body = withNote(m.Body, fmt.Sprintf("(%d earlier messages were held back by the rate limit)", w.suppressed), MaxBody)
+		m.Body = withPinnedNote(m, fmt.Sprintf("(%d earlier messages were held back by the rate limit)", w.suppressed))
 		w.suppressed = 0
 	}
 	w.mu.Unlock()
@@ -359,7 +359,17 @@ func (w *worker) offer(m Message) {
 // line comes first and stays).
 func withNote(body, note string, max int) string {
 	room := max - utf8.RuneCountInString(note) - 1
-	return cut(body, room) + "\n" + note
+	return fit(strings.Split(body, "\n"), room) + "\n" + note
+}
+
+// withPinnedNote adds the note to a message's body. A message with pinned lines (the rollback commands) gets it before
+// them: the note and the details share the room the commands leave, and the commands stay whole and last.
+func withPinnedNote(m Message, note string) string {
+	if m.pinned == "" || !strings.HasSuffix(m.Body, m.pinned) {
+		return withNote(m.Body, note, MaxBody)
+	}
+	head := strings.TrimSuffix(m.Body, m.pinned)
+	return withNote(head, note, MaxBodyPinned-utf8.RuneCountInString(m.pinned)) + m.pinned
 }
 
 // run delivers one URL's messages in order.

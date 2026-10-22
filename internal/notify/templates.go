@@ -21,6 +21,9 @@ type Message struct {
 	// "action rate limit reached" message names one container, and says the same for all).
 	Class      string
 	MinSpacing time.Duration
+	// pinned is the tail of Body that is never cut or changed (the rollback commands: "\n" + the lines), "" for none. A
+	// note added later goes before it.
+	pinned string
 }
 
 // The size limits. A phone shows about 40 characters of a title and a few lines of a body before it cuts them off.
@@ -239,7 +242,7 @@ func compose(c rctx, e engine.Event, subject, headline string, detail, pinned []
 	// The pinned lines go last and whole; the other lines are cut to the room that is left.
 	tail := "\n" + strings.Join(pinned, "\n")
 	room := MaxBodyPinned - utf8.RuneCountInString(tail)
-	return Message{Title: cut(title, MaxTitle), Body: fit(lines, room) + tail, Critical: critical}
+	return Message{Title: cut(title, MaxTitle), Body: fit(lines, room) + tail, Critical: critical, pinned: tail}
 }
 
 // tagMovedMessage fills in the "upgraded during heal" message (plan §3.7): the old and the new digest, and the exact
@@ -276,7 +279,8 @@ func tagMovedMessage(e engine.Event, headline *string, detail *[]string) (pinned
 		*detail = append(*detail, "every stack that shares this tag now sees it as moved")
 	}
 	if a["rollback_tag"] != "" && a["rollback_up"] != "" {
-		return []string{"roll back:", oneLine(a["rollback_tag"]), oneLine(a["rollback_up"])}
+		// Byte for byte: whitespace inside a quoted path is part of the path, so these are never passed through oneLine.
+		return []string{"roll back:", a["rollback_tag"], a["rollback_up"]}
 	}
 	*detail = append(*detail, "no rollback: the previous image was not present locally")
 	return nil

@@ -69,20 +69,11 @@ func TestUpgradeWithoutAPreviousImageHasNoRollbackCommand(t *testing.T) {
 // The rollback is never cut, whatever the other text: with the longest names the commands can reasonably have, the body
 // stays under MaxBodyPinned and every command is whole. The key line is never cut either.
 func TestUpgradedMessageWorstCase(t *testing.T) {
-	p := wncompose.Project{
-		Name: "whalenurse-" + strings.Repeat("p", 29), WorkingDir: "/srv/docker/stacks/" + strings.Repeat("d", 41),
-		ConfigFiles: []string{"/srv/docker/stacks/" + strings.Repeat("d", 41) + "/" + strings.Repeat("c", 30) + ".yaml"}, Service: strings.Repeat("s", 30),
-	}
-	ref := "registry.example.com:5000/" + strings.Repeat("r", 53)
-	a := movedAttrs(p, ref, false)
-	a["rollback_tag"], a["rollback_up"] = wncompose.RollbackCommands(p, ref, oldID, strings.Repeat("a", 30))
-	a["sidecars"] = strings.Repeat("a", 30)
-	a["error"] = strings.Repeat("compose says something very long and noisy about why this failed; ", 12)
-	key := "nas/" + p.Name + "/" + p.Service + "/1"
-	e := ev(engine.TagMoved, key, "x", a)
-	e.Container = p.Name + "-" + p.Service + "-1"
+	e := worstCaseUpgrade(t)
+	a, key := e.Attrs, e.Key
 	for _, dry := range []bool{false, true} {
 		m := renderOne(t, e, rctx{dryRun: dry})
+		t.Logf("dry-run %v: body %d runes, of them %d pinned (max %d)", dry, utf8.RuneCountInString(m.Body), utf8.RuneCountInString(m.pinned), MaxBodyPinned)
 		if utf8.RuneCountInString(m.Title) > MaxTitle || utf8.RuneCountInString(m.Body) > MaxBodyPinned {
 			t.Errorf("%d / %d runes (max %d / %d):\n%s", utf8.RuneCountInString(m.Title), utf8.RuneCountInString(m.Body), MaxTitle, MaxBodyPinned, m.Body)
 		}
@@ -230,4 +221,33 @@ func TestPullRungDoesNotApplyIsTheGivingUpCause(t *testing.T) {
 	if !strings.Contains(m.Body, "cause: pull rung does not apply (pull_policy never)") || !strings.Contains(m.Title, "giving up") {
 		t.Fatalf("%v", m)
 	}
+}
+
+// The rollback lines are sent byte for byte: whitespace inside a quoted path is part of the path.
+func TestRollbackLinesAreSentByteForByte(t *testing.T) {
+	for _, dir := range []string{"/opt/My  Stacks/p", "/opt/My\tStacks/p", "/opt/My Stacks/p"} {
+		p := wncompose.Project{Name: "p", WorkingDir: dir, ConfigFiles: []string{dir + "/compose.yaml"}, Service: "web"}
+		a := movedAttrs(p, "web:1", true)
+		m := renderOne(t, ev(engine.TagMoved, "nas/p/web/1", "x", a), rctx{})
+		if !strings.HasSuffix(m.Body, "\n"+a["rollback_tag"]+"\n"+a["rollback_up"]) {
+			t.Errorf("%q: the rollback was changed:\n%q", dir, m.Body)
+		}
+	}
+}
+
+// worstCaseUpgrade is the "upgraded during heal" event with the longest names the commands can reasonably have.
+func worstCaseUpgrade(t *testing.T) engine.Event {
+	t.Helper()
+	p := wncompose.Project{
+		Name: "whalenurse-" + strings.Repeat("p", 29), WorkingDir: "/srv/docker/stacks/" + strings.Repeat("d", 41),
+		ConfigFiles: []string{"/srv/docker/stacks/" + strings.Repeat("d", 41) + "/" + strings.Repeat("c", 30) + ".yaml"}, Service: strings.Repeat("s", 30),
+	}
+	ref := "registry.example.com:5000/" + strings.Repeat("r", 53)
+	a := movedAttrs(p, ref, false)
+	a["rollback_tag"], a["rollback_up"] = wncompose.RollbackCommands(p, ref, oldID, strings.Repeat("a", 30))
+	a["sidecars"] = strings.Repeat("a", 30)
+	a["error"] = strings.Repeat("compose says something very long and noisy about why this failed; ", 12)
+	e := ev(engine.TagMoved, "nas/"+p.Name+"/"+p.Service+"/1", "x", a)
+	e.Container = p.Name + "-" + p.Service + "-1"
+	return e
 }

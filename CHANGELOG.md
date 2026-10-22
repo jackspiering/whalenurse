@@ -10,6 +10,12 @@ workflow refuses an undated section.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The "upgraded during heal" message keeps its rollback commands exact.** After the rate limit had held messages back,
+  the note that says so cut the end of the message, which is where the rollback commands are; the note now goes before
+  them. Whitespace inside a quoted path of the commands was collapsed to one space; the commands are now sent byte for byte.
+
 ## [0.1.2] - 2026-10-22
 
 A security fix (a compose label could put a flag on the compose command line), fixes from a code review, private
