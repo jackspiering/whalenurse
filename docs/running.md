@@ -13,7 +13,7 @@ Rung 2 runs `docker compose -p <project> --project-directory <working_dir> -f <f
 
 If the files or labels are missing or unreadable, rung 2 is skipped for that container with a message that says so (`RungUnavailable`) and the ladder ends with SUSPENDED after the restart.
 
-**Versions.** Rung 1 works from Engine v25. Rungs 2 and 3 and the drift guard need Engine 28.1 or later and Compose v5.2.0 or later. whalenurse checks both at startup (and again after the events stream comes back): below that, or when a version cannot be read, or without any compose binary, it logs **one warning**, disables every use of compose, and the ladder ends with SUSPENDED after rung 1. `whalenurse status` shows the binary, its source, the versions and the disabled rungs.
+**Versions.** Rung 1 works from Engine v25. Rungs 2 and 3 and the drift guard need Engine 28.1 or later and Compose v5.2.0 or later. A pre-release of a minimum (`28.1.0-rc.1`, `5.2.0-rc.1`) counts as below it. whalenurse checks both at startup (and again after the events stream comes back; an Engine version that could not be read is tried again at every poll): below that, or when a version cannot be read, or without any compose binary, it logs **one warning**, disables every use of compose, and the ladder ends with SUSPENDED after rung 1. `whalenurse status` shows the binary, its source, the versions and the disabled rungs.
 
 ## The drift guard
 

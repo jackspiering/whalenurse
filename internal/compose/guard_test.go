@@ -154,7 +154,7 @@ func TestGuardVersionSkewOnlyForTheBundledCompose(t *testing.T) {
 	}
 
 	bundled := NewFake()
-	bundled.Bin = Binary{Path: BundledPath, Source: SourceBundled, Version: Version{5, 6, 0}}
+	bundled.Bin = Binary{Path: BundledPath, Source: SourceBundled, Version: Version{5, 6, 0, ""}}
 	bundled.OracleFn = drift
 	g := Guard{Compose: bundled, Images: fakeImages{"web:1|amd64": imgOld}}
 	got := g.Check(context.Background(), in)
@@ -304,7 +304,7 @@ func TestGuardBeforePull(t *testing.T) {
 // container, a change compose sees cannot be told from a hash layout that moved.
 func TestGuardBeforePullKeepsTheSkewCheck(t *testing.T) {
 	f := NewFake()
-	f.Bin.Source, f.Bin.Version = SourceBundled, Version{5, 6, 0}
+	f.Bin.Source, f.Bin.Version = SourceBundled, Version{5, 6, 0, ""}
 	f.OracleFn = func(Project, string) (Oracle, error) { return Recreated("wn-web-1"), nil }
 	f.HashFn = func(Project) (string, error) { return "h2", nil }
 	in := pullIn(false)

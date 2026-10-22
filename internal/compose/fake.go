@@ -28,7 +28,7 @@ type Fake struct {
 
 // NewFake returns a Fake that reports compose 5.6.0 from the host plugin.
 func NewFake() *Fake {
-	return &Fake{Bin: Binary{Path: "/host/docker-compose", Source: SourceHost, Version: Version{5, 6, 0}, Raw: "5.6.0"}}
+	return &Fake{Bin: Binary{Path: "/host/docker-compose", Source: SourceHost, Version: Version{5, 6, 0, ""}, Raw: "5.6.0"}}
 }
 
 func (f *Fake) record(verb string, p Project) {

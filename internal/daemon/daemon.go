@@ -467,14 +467,19 @@ func (d *Daemon) Tick(ctx context.Context) {
 		d.settledFlag.Store(true)
 		d.nextPoll = now.Add(d.cfg.PollInterval)
 		d.log.Info("startup settle over; sweeping all containers")
+		d.CheckVersions(ctx)
 		d.sweep(ctx)
 	} else if !now.Before(d.nextPoll) {
 		d.nextPoll = now.Add(d.cfg.PollInterval)
+		if d.cs().unread {
+			d.CheckVersions(ctx)
+		}
 		d.poll(ctx)
 	}
 	if !d.reconnectAt.IsZero() && !now.Before(d.reconnectAt) {
 		d.reconnectAt = time.Time{}
 		d.log.Info("sweeping all containers after the events stream was re-established")
+		d.CheckVersions(ctx)
 		d.sweep(ctx)
 	}
 	if !d.sweepAt.IsZero() && !now.Before(d.sweepAt) {

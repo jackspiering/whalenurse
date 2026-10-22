@@ -14,6 +14,7 @@ import (
 // Version is a release number. The zero Version means "unknown".
 type Version struct {
 	Major, Minor, Patch int
+	Pre                 string // the pre-release, "rc.1" of 28.1.0-rc.1; empty for a release
 }
 
 func (v Version) IsZero() bool { return v == Version{} }
@@ -22,31 +23,38 @@ func (v Version) String() string {
 	if v.IsZero() {
 		return "unknown"
 	}
+	if v.Pre != "" {
+		return fmt.Sprintf("%d.%d.%d-%s", v.Major, v.Minor, v.Patch, v.Pre)
+	}
 	return fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch)
 }
 
-// Less reports whether v is an older release than o.
+// Less reports whether v is an older release than o. A pre-release comes before its release (semver); two
+// pre-releases of one release are not ordered, which the minimums (releases) never need.
 func (v Version) Less(o Version) bool {
 	switch {
 	case v.Major != o.Major:
 		return v.Major < o.Major
 	case v.Minor != o.Minor:
 		return v.Minor < o.Minor
+	case v.Patch != o.Patch:
+		return v.Patch < o.Patch
 	}
-	return v.Patch < o.Patch
+	return v.Pre != "" && o.Pre == ""
 }
 
 // The minimums for rungs 2 and 3 and the drift guard (plan §3.6, *Minimum versions per rung*).
 var (
-	MinEngine  = Version{28, 1, 0}
-	MinCompose = Version{5, 2, 0}
+	MinEngine  = Version{Major: 28, Minor: 1}
+	MinCompose = Version{Major: 5, Minor: 2}
 )
 
-var versionRE = regexp.MustCompile(`v?(\d+)\.(\d+)(?:\.(\d+))?`)
+var versionRE = regexp.MustCompile(`v?(\d+)\.(\d+)(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?`)
 
 // ParseVersion reads the first release number in s, leniently: "5.6.0", "v5.6.0", "Docker Compose version v5.6.0",
-// "29.9.1", "28.1.0-rc.1", "28.1" (patch 0) all parse; a pre-release suffix is ignored. It reports false when s holds no
-// number, so a caller can fail closed.
+// "29.9.1", "28.1.0-rc.1", "28.1" (patch 0) all parse. A pre-release suffix ("-rc.1") is kept, so a pre-release of a
+// minimum is below it; build metadata ("+dfsg1") is ignored. It reports false when s holds no number, so a caller can
+// fail closed.
 func ParseVersion(s string) (Version, bool) {
 	m := versionRE.FindStringSubmatch(s)
 	if m == nil {
@@ -58,6 +66,7 @@ func ParseVersion(s string) (Version, bool) {
 	if m[3] != "" {
 		v.Patch, _ = strconv.Atoi(m[3])
 	}
+	v.Pre = m[4]
 	return v, true
 }
 

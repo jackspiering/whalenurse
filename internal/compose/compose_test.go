@@ -35,8 +35,8 @@ func proj() Project {
 
 func TestParseVersion(t *testing.T) {
 	for in, want := range map[string]Version{
-		"5.6.0": {5, 6, 0}, "v5.6.0": {5, 6, 0}, "Docker Compose version v5.2.0\n": {5, 2, 0}, "29.9.1": {29, 9, 1},
-		"28.1.0-rc.1": {28, 1, 0}, "28.1": {28, 1, 0}, "2.38.2": {2, 38, 2}, "  v5.10.3+dev ": {5, 10, 3},
+		"5.6.0": {5, 6, 0, ""}, "v5.6.0": {5, 6, 0, ""}, "Docker Compose version v5.2.0\n": {5, 2, 0, ""}, "29.9.1": {29, 9, 1, ""},
+		"28.1.0-rc.1": {28, 1, 0, "rc.1"}, "28.1": {28, 1, 0, ""}, "2.38.2": {2, 38, 2, ""}, "  v5.10.3+dev ": {5, 10, 3, ""},
 	} {
 		if got, ok := ParseVersion(in); !ok || got != want {
 			t.Errorf("ParseVersion(%q) = %v, %v; want %v", in, got, ok, want)
@@ -50,16 +50,16 @@ func TestParseVersion(t *testing.T) {
 }
 
 func TestVersionOrder(t *testing.T) {
-	if !(Version{5, 1, 9}).Less(MinCompose) || (Version{5, 2, 0}).Less(MinCompose) || (Version{5, 10, 0}).Less(MinCompose) {
+	if !(Version{5, 1, 9, ""}).Less(MinCompose) || (Version{5, 2, 0, ""}).Less(MinCompose) || (Version{5, 10, 0, ""}).Less(MinCompose) {
 		t.Fatal("ordering by component, not by string")
 	}
-	if !(Version{28, 0, 4}).Less(MinEngine) || (Version{28, 1, 0}).Less(MinEngine) || (Version{29, 9, 1}).Less(MinEngine) {
+	if !(Version{28, 0, 4, ""}).Less(MinEngine) || (Version{28, 1, 0, ""}).Less(MinEngine) || (Version{29, 9, 1, ""}).Less(MinEngine) {
 		t.Fatal("engine minimum is 28.1.0")
 	}
 }
 
 func TestCheckVersions(t *testing.T) {
-	ok := &Binary{Path: "/host/docker-compose", Source: SourceHost, Version: Version{5, 2, 0}}
+	ok := &Binary{Path: "/host/docker-compose", Source: SourceHost, Version: Version{5, 2, 0, ""}}
 	for _, tc := range []struct {
 		name, engine string
 		bin          *Binary
@@ -67,20 +67,44 @@ func TestCheckVersions(t *testing.T) {
 		reason       string
 	}{
 		{"both at the minimum", "28.1.0", ok, true, ""},
-		{"newer", "29.9.1", &Binary{Version: Version{5, 6, 0}}, true, ""},
+		{"newer", "29.9.1", &Binary{Version: Version{5, 6, 0, ""}}, true, ""},
 		{"engine 28.0.4", "28.0.4", ok, false, "Docker Engine 28.0.4 is older than 28.1.0"},
 		{"engine 25", "25.0.5", ok, false, "older than 28.1.0"},
-		{"compose 5.1.0", "29.9.1", &Binary{Path: "/p", Version: Version{5, 1, 0}}, false, "Docker Compose 5.1.0 (/p) is older than 5.2.0"},
-		{"compose v2 on the runner", "29.9.1", &Binary{Path: "/p", Version: Version{2, 38, 2}}, false, "Compose 2.38.2"},
+		{"compose 5.1.0", "29.9.1", &Binary{Path: "/p", Version: Version{5, 1, 0, ""}}, false, "Docker Compose 5.1.0 (/p) is older than 5.2.0"},
+		{"compose v2 on the runner", "29.9.1", &Binary{Path: "/p", Version: Version{2, 38, 2, ""}}, false, "Compose 2.38.2"},
 		{"no compose", "29.9.1", nil, false, "no docker compose binary"},
 		{"unreadable compose version", "29.9.1", &Binary{Path: "/p", Raw: "garbage"}, false, "cannot be read"},
 		{"unreadable engine version", "", ok, false, "cannot be read"},
-		{"both old", "25.0.0", &Binary{Version: Version{2, 0, 0}}, false, "Engine 25.0.0"},
+		{"both old", "25.0.0", &Binary{Version: Version{2, 0, 0, ""}}, false, "Engine 25.0.0"},
 	} {
 		g := CheckVersions(tc.engine, tc.bin)
 		if g.Recreate != tc.want || !strings.Contains(g.Reason, tc.reason) || (tc.want && g.Reason != "") {
 			t.Errorf("%s: %+v", tc.name, g)
 		}
+	}
+}
+
+// A pre-release of a minimum is older than the release itself (semver): 28.1.0-rc.1 may lack what 28.1.0 has.
+func TestAPreReleaseOfTheMinimumIsBelowIt(t *testing.T) {
+	rc, _ := ParseVersion("Docker Compose version v5.2.0-rc.1")
+	final, _ := ParseVersion("v5.2.0")
+	for _, tc := range []struct {
+		name, engine string
+		bin          Version
+		want         bool
+	}{
+		{"engine rc of the minimum", "28.1.0-rc.1", final, false},
+		{"compose rc of the minimum", "28.1.0", rc, false},
+		{"engine rc above the minimum", "28.2.0-rc.1", final, true},
+		{"build metadata is not a pre-release", "28.1.0+dfsg1", final, true},
+	} {
+		g := CheckVersions(tc.engine, &Binary{Path: "/p", Version: tc.bin})
+		if g.Recreate != tc.want {
+			t.Errorf("%s: %+v", tc.name, g)
+		}
+	}
+	if !SameRelease("5.2.0", final) || SameRelease("5.2.0", rc) || !SameRelease("v5.2.0-rc.1", rc) {
+		t.Fatal("a pre-release is another release than the final one")
 	}
 }
 
@@ -506,12 +530,12 @@ func TestResolveOrder(t *testing.T) {
 			t.Fatalf("env=%q: %+v %v", env, b, err)
 		}
 	}
-	check("/env/c", "/env/c", SourceEnv, Version{5, 9, 0})
-	check("", "/host/docker-compose", SourceHost, Version{5, 6, 0})
+	check("/env/c", "/env/c", SourceEnv, Version{5, 9, 0, ""})
+	check("", "/host/docker-compose", SourceHost, Version{5, 6, 0, ""})
 	delete(present, "/host/docker-compose")
-	check("", BundledPath, SourceBundled, Version{5, 4, 0})
+	check("", BundledPath, SourceBundled, Version{5, 4, 0, ""})
 	broken[BundledPath] = true // exists but does not run: next
-	check("", HostPluginDirs[0], SourceHost, Version{5, 3, 0})
+	check("", HostPluginDirs[0], SourceHost, Version{5, 3, 0, ""})
 	delete(present, HostPluginDirs[0])
 	if b, notes, err := Resolve(ctx, mk("")); err == nil || b != nil || len(notes) < 3 {
 		t.Fatalf("nothing found must be an error with notes: %v %v %v", b, notes, err)

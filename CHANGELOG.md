@@ -16,6 +16,10 @@ workflow refuses an undated section.
   channel, so whalenurse kept waiting for events that never came: no resubscribe, no sweep after the reconnect, and `/healthz`
   stayed ok. It now resubscribes, sweeps after the settle time, and `/healthz` reports a stream that stays down, also when
   every resubscribe fails at once.
+- **The compose version gate was read only at startup.** After the events stream came back, an Engine upgraded in the
+  meantime was not seen, and a failed first read of the Engine version disabled rungs 2 and 3 until whalenurse was restarted.
+  The gate is now read again before the startup sweep and the sweep after a reconnect, and at every poll until a first read
+  succeeds. A pre-release of a minimum version (`28.1.0-rc.1`, `5.2.0-rc.1`) now counts as below it.
 
 ## [0.1.2] - 2026-10-22
 

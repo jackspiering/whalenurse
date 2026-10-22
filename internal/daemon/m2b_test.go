@@ -385,21 +385,48 @@ func TestNoComposeBinaryDisablesTheRungsAndSaysWhy(t *testing.T) {
 	}
 }
 
-func TestTheGateIsCheckedAgainAfterTheEngineIsUpgraded(t *testing.T) {
+// The gate is read again before the sweep that follows a reconnect: the Engine may have been upgraded while the stream
+// was down (plan v3.6 item 5).
+func TestTheGateIsCheckedAgainAfterAReconnect(t *testing.T) {
 	h := newCompose(t, nil, nil, docker.ServerInfo{Version: "28.0.4", Arch: "amd64"})
-	if h.d.Status().(Status).Compose.Rungs {
-		t.Fatal("28.0.4 is below the minimum")
-	}
+	h.tick()
+	h.d.StreamConnected()
 	h.fake.SetServer(docker.ServerInfo{Version: "29.9.1", Arch: "amd64"})
-	h.d.CheckVersions(h.ctx)
-	if !h.d.Status().(Status).Compose.Rungs {
-		t.Fatal("the upgrade should enable the rungs")
+	h.d.StreamLost(h.clk.Now())
+	h.d.StreamConnected()
+	h.advance(time.Second)
+	if st := h.d.Status().(Status).Compose; !st.Rungs || st.Engine != "29.9.1" {
+		t.Fatalf("gate not checked again after the reconnect: %+v", st)
 	}
-	// A failed read keeps what was known.
+	if n := strings.Count(h.log.String(), "compose rungs enabled"); n != 1 {
+		t.Fatalf("%d \"compose rungs enabled\" lines, want 1:\n%s", n, h.log.String())
+	}
+	// Another reconnect with nothing changed says nothing; a failed read keeps what was known.
 	h.fake.ServerErr = fmt.Errorf("daemon restoring")
-	h.d.CheckVersions(h.ctx)
-	if !h.d.Status().(Status).Compose.Rungs {
-		t.Fatal("an API error during a restore must not disable the rungs")
+	h.d.StreamLost(h.clk.Now())
+	h.d.StreamConnected()
+	h.advance(time.Second)
+	if st := h.d.Status().(Status).Compose; !st.Rungs {
+		t.Fatalf("an API error during a restore must not disable the rungs: %+v", st)
+	}
+	if n := h.rec.Count(engine.RungsDisabled); n != 1 {
+		t.Fatalf("%d RungsDisabled events, want the one from startup", n)
+	}
+}
+
+// A failed first read is not a verdict on the versions: it is tried again until it succeeds.
+func TestAFailedFirstVersionReadIsTriedAgain(t *testing.T) {
+	h := newCompose(t, nil, nil, docker.ServerInfo{Version: "29.9.1", Arch: "amd64"}, func(o *Options) {
+		o.Reader.(*docker.Fake).ServerErr = fmt.Errorf("daemon restoring")
+	})
+	if st := h.d.Status().(Status).Compose; st.Rungs || !strings.Contains(st.Reason, "cannot read the Docker Engine version") {
+		t.Fatalf("%+v", st)
+	}
+	h.tick() // the settle sweep: still failing
+	h.fake.ServerErr = nil
+	h.advance(h.cfg.PollInterval + time.Second)
+	if st := h.d.Status().(Status).Compose; !st.Rungs || st.Engine != "29.9.1" {
+		t.Fatalf("a failed first read was never tried again: %+v", st)
 	}
 }
 
