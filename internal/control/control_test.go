@@ -2,7 +2,9 @@ package control
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -166,4 +168,129 @@ func healthOnly(c api.Checker) http.Handler {
 	m := http.NewServeMux()
 	m.Handle("/healthz", api.HealthHandler(c))
 	return m
+}
+
+// A second whalenurse on the same socket path (a `docker exec ... whalenurse run --dry-run` beside the live daemon) must
+// not take the path over: the CLI and the image HEALTHCHECK would reach the wrong process, and its exit would unlink the
+// live daemon's socket.
+func TestServeDoesNotTakeOverALiveSocket(t *testing.T) {
+	sock, stop := serve(t, healthOnly(&fakeChecker{ok: true, msg: "one"}))
+	defer stop()
+	if err := CheckFree(sock); !errors.Is(err, ErrInUse) {
+		t.Fatalf("CheckFree on a live socket: %v", err)
+	}
+
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- Serve(ctx2, sock, healthOnly(&fakeChecker{ok: false, msg: "two"})) }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrInUse) {
+			t.Fatalf("second Serve: %v, want ErrInUse", err)
+		}
+	case <-time.After(2 * time.Second):
+		cancel2()
+		<-done
+		t.Fatal("the second Serve took over the live socket")
+	}
+	cancel2()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := Health(ctx, sock); err != nil {
+		t.Fatalf("the first daemon is no longer reachable: %v", err)
+	}
+}
+
+// A stale socket (no process listening) is replaced, as before.
+func TestServeReplacesAStaleSocket(t *testing.T) {
+	dir, err := os.MkdirTemp("", "wn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	sock := filepath.Join(dir, "w.sock")
+	l, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.(*net.UnixListener).SetUnlinkOnClose(false)
+	l.Close() // what a killed process leaves behind
+	if _, err := os.Lstat(sock); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- Serve(ctx, sock, healthOnly(&fakeChecker{ok: true, msg: "ok"})) }()
+	hctx, hcancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer hcancel()
+	for Health(hctx, sock) != nil && hctx.Err() == nil {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := Health(hctx, sock); err != nil {
+		t.Fatalf("stale socket not replaced: %v", err)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Something at the path that is not a socket is not deleted.
+func TestServeLeavesARegularFileAlone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "w.sock")
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- Serve(ctx, path, healthOnly(&fakeChecker{ok: true})) }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("Serve on a regular file: no error")
+		}
+	case <-time.After(2 * time.Second):
+		cancel()
+		<-done
+		t.Fatal("Serve replaced a regular file")
+	}
+	if b, err := os.ReadFile(path); err != nil || string(b) != "x" {
+		t.Fatalf("the file was changed: %q %v", b, err)
+	}
+}
+
+// On shutdown, the path is removed only while it is still this process's socket.
+func TestShutdownRemovesOnlyItsOwnSocket(t *testing.T) {
+	dir, err := os.MkdirTemp("", "wn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	sock := filepath.Join(dir, "w.sock")
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- Serve(ctx, sock, healthOnly(&fakeChecker{ok: true, msg: "A"})) }()
+	hctx, hcancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer hcancel()
+	for Health(hctx, sock) != nil && hctx.Err() == nil {
+		time.Sleep(10 * time.Millisecond)
+	}
+	// Someone else replaced the path (a newer process that found it, say, after a restart of A's container).
+	if err := os.Remove(sock); err != nil {
+		t.Fatal(err)
+	}
+	c, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.(*net.UnixListener).SetUnlinkOnClose(false)
+	defer c.Close()
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(sock); err != nil {
+		t.Fatalf("A's shutdown removed the other listener's socket: %v", err)
+	}
 }

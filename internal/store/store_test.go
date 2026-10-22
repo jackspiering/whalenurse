@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -391,4 +392,29 @@ func TestReadsUseASeparateReadOnlyConnection(t *testing.T) {
 		t.Fatal("a read waited for the writer's open transaction")
 	}
 	tx.Rollback()
+}
+
+// Two whalenurse processes on one data directory would both heal, each from its own copy of the state: the second Open
+// is refused while the first store is open, and allowed once it is closed. (flock locks belong to the open file, so two
+// Opens in one process conflict just as two processes do.)
+func TestASecondOpenOfTheSameDirectoryIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Open(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err := Open(dir, nil); !errors.Is(err, ErrLocked) {
+		if b != nil {
+			b.Close()
+		}
+		t.Fatalf("second Open: %v, want ErrLocked", err)
+	}
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+	b, err := Open(dir, nil)
+	if err != nil {
+		t.Fatalf("Open after Close: %v", err)
+	}
+	b.Close()
 }

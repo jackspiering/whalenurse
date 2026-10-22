@@ -147,6 +147,13 @@ func runCmd(args []string) error {
 	if dry {
 		cfg.DryRun = true
 	}
+	// A second `run` beside a live daemon (a dry run by docker exec, say) must not take its control socket over; the store
+	// lock stops a second live run as well, but a dry run opens no store.
+	if cfg.ControlSocket != "" {
+		if err := control.CheckFree(cfg.ControlSocket); err != nil {
+			return fmt.Errorf("%w: a whalenurse is already running here; give a second one its own WHALENURSE_CONTROL_SOCKET (and, for a live run, its own WHALENURSE_DATA_DIR)", err)
+		}
+	}
 	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
 	for _, w := range warns {
 		log.Warn("config", "detail", w)
@@ -201,6 +208,9 @@ func runCmd(args []string) error {
 	} else {
 		st, err := store.Open(cfg.DataDir, log)
 		if err != nil {
+			if errors.Is(err, store.ErrLocked) {
+				return err
+			}
 			return fmt.Errorf("cannot open the state store in %s (is WHALENURSE_DATA_DIR a writable volume?): %w", cfg.DataDir, err)
 		}
 		defer st.Close()
@@ -259,7 +269,11 @@ func runCmd(args []string) error {
 	if cfg.ControlSocket != "" {
 		go func() {
 			if err := control.Serve(ctx, cfg.ControlSocket, sockHandler); err != nil {
-				log.Error("control socket unavailable; the image healthcheck will fail", "path", cfg.ControlSocket, "error", err.Error())
+				msg := "control socket unavailable; the image healthcheck will fail"
+				if errors.Is(err, control.ErrInUse) {
+					msg = "control socket in use by another whalenurse; this one has none (the CLI reaches the other)"
+				}
+				log.Error(msg, "path", cfg.ControlSocket, "error", err.Error())
 			}
 		}()
 	}

@@ -14,6 +14,9 @@ workflow refuses an undated section.
 
 - `whalenurse run` refuses any argument other than `--dry-run`: `run dry-run` or `run -- --dry-run` started a live
   healer. `whalenurse -h` and `--help` print the usage and exit 0 instead of exiting 1.
+- A second `whalenurse run` no longer takes over a running daemon's control socket (its exit left the live daemon
+  unreachable by the CLI and its health check): it refuses to start, and a second live run on the same data directory is
+  refused by a lock on it.
 
 ### Changed
 

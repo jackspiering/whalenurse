@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -37,7 +38,16 @@ type Store struct {
 	rdb  *sql.DB // a second, read-only connection for the API: a page view never queues behind (or in front of) a healer write
 	log  *slog.Logger
 	errs atomic.Int64
+	lock *os.File // holds the flock on LockName while the store is open
 }
+
+// LockName is the file in the data directory that a running whalenurse holds an exclusive flock(2) on. A second whalenurse on
+// the same directory would heal the same containers from the same state, so Open refuses it. The lock is not SQLite's
+// own (those are fcntl locks, which any close in the process drops); it goes away with the process.
+const LockName = "whalenurse.lock"
+
+// ErrLocked is returned by Open when another process holds the data directory.
+var ErrLocked = errors.New("another whalenurse is running with this data directory")
 
 // Open creates the data directory if needed and opens (and migrates) the database.
 func Open(dir string, log *slog.Logger) (*Store, error) {
@@ -47,6 +57,35 @@ func Open(dir string, log *slog.Logger) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("data dir: %w", err)
 	}
+	lock, err := lockDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	s, err := openDB(dir, log)
+	if err != nil {
+		lock.Close()
+		return nil, err
+	}
+	s.lock = lock
+	return s, nil
+}
+
+func lockDir(dir string) (*os.File, error) {
+	f, err := os.OpenFile(filepath.Join(dir, LockName), os.O_RDWR|os.O_CREATE|syscall.O_CLOEXEC, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("data dir lock: %w", err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, fmt.Errorf("%w (%s)", ErrLocked, dir)
+		}
+		return nil, fmt.Errorf("data dir lock: %w", err)
+	}
+	return f, nil
+}
+
+func openDB(dir string, log *slog.Logger) (*Store, error) {
 	path := filepath.Join(dir, FileName)
 	dsn := "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	db, err := sql.Open("sqlite", dsn)
@@ -74,12 +113,16 @@ func Open(dir string, log *slog.Logger) (*Store, error) {
 	return s, nil
 }
 
-// Close closes the database.
+// Close closes the database and releases the data directory.
 func (s *Store) Close() error {
 	if s.rdb != s.db {
 		s.rdb.Close()
 	}
-	return s.db.Close()
+	err := s.db.Close()
+	if s.lock != nil {
+		s.lock.Close()
+	}
+	return err
 }
 
 // WriteErrors counts the writes that failed since Open.

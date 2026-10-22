@@ -43,7 +43,9 @@ services:
 - **`/run` as a tmpfs** holds the control socket that the CLI and the image's health check use (the root filesystem is read-only).
 - **`/data`** is the state store (`whalenurse.db`): incidents, SUSPENDED, pauses, flap history, the event log, the notification
   dedupe. A named volume works as it is (the image prepares the directory for uid 65532); a bind mount needs
-  `chown 65532:65532`. Without it a restart of whalenurse forgets everything that it has not yet recovered from.
+  `chown 65532:65532`. Without it a restart of whalenurse forgets everything that it has not yet recovered from. One
+  whalenurse per data directory: `run` holds a lock on `whalenurse.lock` there, and a second `run` on the same directory
+  refuses to start.
 - **Set `WHALENURSE_HOST_ID`** if you want a stable host name in keys and notifications: the container's hostname is its ID.
 
 ### The two read-only mounts that make recreate work
