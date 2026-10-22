@@ -420,18 +420,29 @@ func (d *Daemon) dependentMayTakeMove(ctx context.Context, c docker.Container) b
 
 // noteUpgrade tells that rung 2 recreated a container of a pull-enabled service onto a different image than it was
 // created from (the tag moved under it, and the guard let the image-only move through): "upgraded during heal", with the
-// rollback. It says nothing when the image is the same.
+// rollback. It says nothing when the image is the same. A recreate that failed can still have changed it: compose's up
+// replaces the container (create, stop, remove, rename) before it starts it, so a start that fails (a port in use) leaves
+// the new container on the moved image, and that is said too, with ok=false and the error.
 func (d *Daemon) noteUpgrade(ctx context.Context, t engine.Target, old docker.Container, p compose.Project, recreateErr error) {
 	if recreateErr != nil {
-		return
+		// The action's context may have run out with the recreate: look with a fresh one.
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 	}
 	cur, err := d.currentOf(ctx, t.Key)
 	if err != nil || cur.ImageID == "" || old.ImageID == "" || cur.ImageID == old.ImageID {
 		return
 	}
 	tag, up := compose.RollbackCommands(p, old.Image, old.ImageID)
-	d.eng.Note(t, engine.Upgraded, fmt.Sprintf("%s: %s -> %s; recreated", old.Image, shortID(old.ImageID), shortID(cur.ImageID)), map[string]string{
+	attrs := map[string]string{
 		"ref": old.Image, "old": old.ImageID, "new": cur.ImageID, "old_image": old.ImageID,
 		"rollback_tag": tag, "rollback_up": up, "ok": "true",
-	})
+	}
+	msg := fmt.Sprintf("%s: %s -> %s; recreated", old.Image, shortID(old.ImageID), shortID(cur.ImageID))
+	if recreateErr != nil {
+		attrs["ok"], attrs["error"] = "false", recreateErr.Error()
+		msg = strings.Replace(msg, "recreated", "replaced, but the recreate failed: "+recreateErr.Error(), 1)
+	}
+	d.eng.Note(t, engine.Upgraded, msg, attrs)
 }

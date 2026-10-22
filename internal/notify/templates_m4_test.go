@@ -71,9 +71,14 @@ func TestUpgradeWithoutAPreviousImageHasNoRollbackCommand(t *testing.T) {
 func TestUpgradedMessageWorstCase(t *testing.T) {
 	e := worstCaseUpgrade(t)
 	a, key := e.Attrs, e.Key
-	for _, dry := range []bool{false, true} {
+	for _, c := range []struct {
+		typ engine.EventType
+		dry bool
+	}{{engine.TagMoved, false}, {engine.TagMoved, true}, {engine.Upgraded, false}, {engine.Upgraded, true}} {
+		dry := c.dry
+		e.Type = c.typ
 		m := renderOne(t, e, rctx{dryRun: dry})
-		t.Logf("dry-run %v: body %d runes, of them %d pinned (max %d)", dry, utf8.RuneCountInString(m.Body), utf8.RuneCountInString(m.pinned), MaxBodyPinned)
+		t.Logf("%s, dry-run %v: body %d runes, of them %d pinned (max %d)", e.Type, dry, utf8.RuneCountInString(m.Body), utf8.RuneCountInString(m.pinned), MaxBodyPinned)
 		if utf8.RuneCountInString(m.Title) > MaxTitle || utf8.RuneCountInString(m.Body) > MaxBodyPinned {
 			t.Errorf("%d / %d runes (max %d / %d):\n%s", utf8.RuneCountInString(m.Title), utf8.RuneCountInString(m.Body), MaxTitle, MaxBodyPinned, m.Body)
 		}
@@ -250,4 +255,18 @@ func worstCaseUpgrade(t *testing.T) engine.Event {
 	e := ev(engine.TagMoved, "nas/"+p.Name+"/"+p.Service+"/1", "x", a)
 	e.Container = p.Name + "-" + p.Service + "-1"
 	return e
+}
+
+// A rung-2 upgrade whose recreate failed after compose had replaced the container: its own headline (rung 2 pulled
+// nothing), the error, and the rollback.
+func TestUpgradedThatFailedSaysTheRecreateFailedNotThePull(t *testing.T) {
+	m := renderOne(t, ev(engine.Upgraded, webKey, "x", movedAttrs(stackProject(), "web:1", false)), rctx{})
+	for _, want := range []string{"took the moved tag, but the recreate failed", "error: port is already allocated", "docker image tag " + oldID} {
+		if !strings.Contains(m.Title+m.Body, want) {
+			t.Errorf("lacks %q: %v", want, m)
+		}
+	}
+	if strings.Contains(m.Title, "pulled") || utf8.RuneCountInString(m.Title) > MaxTitle {
+		t.Errorf("%v", m)
+	}
 }

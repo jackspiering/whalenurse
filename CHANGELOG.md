@@ -15,6 +15,9 @@ workflow refuses an undated section.
 - **The "upgraded during heal" message keeps its rollback commands exact.** After the rate limit had held messages back,
   the note that says so cut the end of the message, which is where the rollback commands are; the note now goes before
   them. Whitespace inside a quoted path of the commands was collapsed to one space; the commands are now sent byte for byte.
+- **A failed rung-2 recreate that still changed the image is announced.** For a `whalenurse.heal.pull=true` container,
+  compose replaces the container before it starts it, so a start that failed (a port in use) left it on the moved image
+  without the "upgraded during heal" message or its rollback. That message is now sent, saying that the recreate failed.
 
 ### Changed
 

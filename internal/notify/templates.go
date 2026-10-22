@@ -257,6 +257,9 @@ func tagMovedMessage(e engine.Event, headline *string, detail *[]string) (pinned
 		return id
 	}
 	switch {
+	case a["ok"] != "true" && e.Type == engine.Upgraded:
+		// Rung 2 never pulls: compose replaced the container onto the moved tag, and then the start failed.
+		*headline = "took the moved tag, but the recreate failed"
 	case a["ok"] != "true":
 		*headline = "pulled a newer image, but the recreate failed"
 	default:
