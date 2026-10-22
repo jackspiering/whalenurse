@@ -18,6 +18,10 @@ workflow refuses an undated section.
 - **A failed rung-2 recreate that still changed the image is announced.** For a `whalenurse.heal.pull=true` container,
   compose replaces the container before it starts it, so a start that failed (a port in use) left it on the moved image
   without the "upgraded during heal" message or its rollback. That message is now sent, saying that the recreate failed.
+- **The dashboard and the API show the rollback commands exactly, or not at all.** The redactor that masks the
+  notification URLs and the token could change ordinary words of a rollback command (a topic named `docker`, a registry on
+  the receiver's host), and the page offered the masked command with a Copy button. Such a rollback is now withheld, and the
+  page says so.
 
 ### Changed
 

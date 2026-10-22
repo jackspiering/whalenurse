@@ -562,3 +562,42 @@ func TestStreamSurvivesTheServersReadTimeout(t *testing.T) {
 		t.Fatalf("the stream did not survive the read timeout: %v", m)
 	}
 }
+
+// The rollback commands are pasted into a shell: they leave whalenurse exactly as they were built, or not at all. A
+// redactor fragment in one of them (an ntfy topic "docker", a receiver on the registry's host) withholds both, in the
+// container document and in every event.
+func TestRollbackIsShownExactlyOrNotAtAll(t *testing.T) {
+	const tag = "docker image tag sha256:aaaaaaaaaaaaaaaa qmcgaw/gluetun:latest"
+	const up = "docker compose -p media --project-directory /opt/stacks/media -f compose.yaml up -d --no-deps --pull never vpn"
+	for name, redact := range map[string]func(string) string{
+		"a fragment in both":        func(v string) string { return strings.ReplaceAll(v, "docker", "***") },
+		"a fragment in the up only": func(v string) string { return strings.ReplaceAll(v, "/opt/stacks", "***") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := fixtureService()
+			s.Redact = redact
+			d, ok := s.Container("nas/media/vpn/1")
+			if !ok || d.LastUpgrade == nil {
+				t.Fatal("no last upgrade")
+			}
+			if u := d.LastUpgrade; u.RollbackTag != "" || u.RollbackUp != "" || u.OldImage == "" {
+				t.Fatalf("a changed rollback must be withheld, both lines, and the old image kept: %+v", u)
+			}
+			for _, e := range s.EventsPage(EventsQuery{}).Events {
+				if _, has := e.Attrs["rollback_tag"]; has {
+					t.Fatalf("event %d still carries the rollback: %+v", e.ID, e.Attrs)
+				}
+				if _, has := e.Attrs["rollback_up"]; has {
+					t.Fatalf("event %d still carries the rollback: %+v", e.ID, e.Attrs)
+				}
+			}
+		})
+	}
+	// Untouched by the redactor: both, byte for byte.
+	s := fixtureService()
+	s.Redact = func(v string) string { return strings.ReplaceAll(v, "hunter2", "***") }
+	d, _ := s.Container("nas/media/vpn/1")
+	if u := d.LastUpgrade; u.RollbackTag != tag || u.RollbackUp != up {
+		t.Fatalf("%+v", u)
+	}
+}

@@ -161,7 +161,10 @@ missing bind source, a port already allocated (`port is already allocated`), a b
   or a `pull_policy` that forbids the pull.
 - **Drift status** on a container page is the guard's *last verdict* from the event log, not a live check (a page view must not
   run compose). **Last upgrade during heal** shows the old and new image and the rollback commands, one per line with a Copy
-  button (shown only with JavaScript).
+  button (shown only with JavaScript). The commands are shown exactly or not at all: when part of them matches a configured
+  secret (a notification URL, the uptime ping URL, the HTTP token or a registry credential), masking them would make a
+  command that is not the rollback, so the page says they are withheld, and `/api/v1` leaves out `rollback_tag` and
+  `rollback_up`. Build them by hand from the old image and the reference shown.
 - **History** lists incidents and events, with filter chips. The noisy `EventAttributed` events (a Docker event that arrived
   during a whalenurse action) are hidden; *Debug (everything)* or `?debug=1` shows them.
 - Times are UTC; an expiry reads "2m left (until 14:32)". Container names are the final names (compose's temporary

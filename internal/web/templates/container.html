@@ -76,6 +76,10 @@
 <p>To roll back, run these two commands on the host, one after the other:</p>
 <div class="cmd"><pre class="rollback"><code>{{.RollbackTag}}</code></pre><button type="button" class="copy" data-copy aria-label="Copy the first command">Copy</button></div>
 <div class="cmd"><pre class="rollback"><code>{{.RollbackUp}}</code></pre><button type="button" class="copy" data-copy aria-label="Copy the second command">Copy</button></div>
+{{else if .OldImage}}
+<p class="muted">The rollback commands are withheld: part of their text matches a configured secret (a notification URL, the uptime ping URL, the HTTP token or a registry credential), and a masked command is not the command. To roll back, tag the old image onto the reference with <code>docker image tag</code>, then run <code>docker compose up -d --no-deps --pull never --no-build</code> for the service in its project.</p>
+{{else}}
+<p class="muted">No rollback: the previous image was not present locally.</p>
 {{end}}
 {{end}}
 

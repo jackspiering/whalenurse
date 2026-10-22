@@ -77,6 +77,16 @@ func (s *Service) text(v string, max int) string {
 	return v
 }
 
+// rollbackAttrs are the commands of an "upgraded during heal" event: a person pastes them into a shell, so they leave
+// whalenurse exactly as they were built or not at all. When the redactor would change either (a notification topic that is
+// also a word of the command) or one is too long to show whole, both are withheld; the page then says so.
+var rollbackAttrs = map[string]bool{"rollback_tag": true, "rollback_up": true}
+
+// exact reports whether v can be shown as it is: the redactor leaves it alone and it is within the length cap.
+func (s *Service) exact(v string) bool {
+	return s.redact(v) == v && utf8.RuneCountInString(v) <= maxText
+}
+
 // tempName matches the name compose gives the old container while it recreates it: <12 hex digits>_<name>. The
 // container that matters is the final one, so the prefix is dropped wherever a name is shown.
 var tempName = regexp.MustCompile(`^[0-9a-f]{12}_(.+)$`)
@@ -98,8 +108,12 @@ func (s *Service) EventDoc(e engine.Event) EventDoc {
 	if d.Host == "" {
 		d.Host = s.Host
 	}
+	keepRollback := s.exact(e.Attrs["rollback_tag"]) && s.exact(e.Attrs["rollback_up"])
 	for k, v := range e.Attrs {
 		if !allowedAttrs[k] {
+			continue
+		}
+		if rollbackAttrs[k] && !keepRollback {
 			continue
 		}
 		if d.Attrs == nil {
